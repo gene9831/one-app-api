@@ -10,6 +10,4 @@ class Config:
     SECRET_KEY = os.urandom(24)
 
     # MongoDB
-    MONGO_URI = 'mongodb://one:movie@192.168.153.128:27017/oneMovie'
-
-    TOKEN_PATH = 'cache/token'
+    MONGO_URI = 'mongodb://one:movie@ubuntu.local:27017/one_movie'

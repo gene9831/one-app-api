@@ -1,13 +1,18 @@
 # -*- coding: utf-8 -*-
+import coloredlogs
+import logging
+
 from flask import Flask
 from flask_pymongo import PyMongo
+
+coloredlogs.install(level='INFO')
+logger = logging.getLogger(__name__)
 
 mongo = PyMongo()
 
 
 def create_app(config_obj):
     app = Flask(__name__)
-    print(__name__)
 
     # 加载配置文件
     app.config.from_object(config_obj)
@@ -15,11 +20,7 @@ def create_app(config_obj):
 
     mongo.init_app(app)
 
-    from flask_restful import Api
-    from app.onedrive import Login, Callback
-    api = Api(app)
-    api.add_resource(Login, '/login')
-    api.add_resource(Callback, '/callback')
+    from app.onedrive import onedrive_bp
+    app.register_blueprint(onedrive_bp)
 
     return app
-

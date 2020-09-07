@@ -1,47 +1,67 @@
 # -*- coding: utf-8 -*-
 from requests_oauthlib import OAuth2Session
-from .auth_helper import Auth
+from requests.exceptions import ConnectionError
+import logging
 
-drive_url = 'https://graph.microsoft.com/v1.0/me/drive'
+logger = logging.getLogger(__name__)
+
+
+class Url:
+    drive = 'https://graph.microsoft.com/v1.0/me/drive'
+    root = '{}/root'.format(drive)
+    items = '{}/items'.format(drive)
+
+
+def graph_client_request(graph_client, method, url, try_times=3,
+                         params=None, data=None, headers=None,
+                         files=None, timeout=None, json=None):
+    res = None
+    while try_times > 0 and res is None:
+        try:
+            res = graph_client.request(method, url,
+                                       params=params, data=data, headers=headers,
+                                       files=files, timeout=timeout, json=json)
+        except ConnectionError as e:
+            logger.error(e)
+        try_times -= 1
+    return res
 
 
 class Drive:
-    def __init__(self, auth: Auth, auto_refresh=True):
-        self.auth = auth
+    @staticmethod
+    def delta(auth, url=None):
+        graph_client = OAuth2Session(token=auth.get_token())
 
-        if auto_refresh:
-            self.auth.auto_refresh_token()
+        if url is None:
+            url = '{}/delta'.format(Url.root)
 
-    def delta(self):
-        if not self.auth.auth_state:
-            return None
-
-        graph_client = OAuth2Session(token=self.auth.get_token())
-
-        data = {'@odata.nextLink': '{0}/root/delta'.format(drive_url)}
+        data = {'@odata.nextLink': url}
         while '@odata.nextLink' in data.keys():
             data = graph_client.get(data['@odata.nextLink']).json()
-            yield data
+        yield data
 
-    def item(self, item_id):
-        if not self.auth.auth_state:
-            return None
+    @staticmethod
+    def item(auth, item_id):
+        graph_client = OAuth2Session(token=auth.get_token())
 
-        graph_client = OAuth2Session(token=self.auth.get_token())
+        return graph_client.get('{}/{}'.format(Url.items, item_id)).json()
 
-        return graph_client.get('{0}/items/{1}'.format(drive_url, item_id)).json()
-
-    def create_link(self, item_id):
-        if not self.auth.auth_state:
-            return None
-
-        graph_client = OAuth2Session(token=self.auth.get_token())
+    @staticmethod
+    def create_link(auth, item_id):
+        graph_client = OAuth2Session(token=auth.get_token())
 
         data = {'type': 'view', 'scope': 'anonymous'}
-        res = graph_client.post('{0}/items/{1}/createLink'.format(drive_url, item_id), json=data)
+        res = graph_client.post('{}/{}/createLink'.format(Url.items, item_id), json=data)
         return res.json()['link']['webUrl']
 
-    # def create_link(self, item):
+    @staticmethod
+    def content(auth, item_id):
+        graph_client = OAuth2Session(token=auth.get_token())
+
+        res = graph_client.get('{}/{}/content'.format(Url.items, item_id), allow_redirects=False)
+        location = res.headers.get('Location')
+        return location
+    # def create_link(auth,item):
     #     base_down_url = Cache.get_base_down_url()
     #     if base_down_url is None:
     #         tmp_url = self.get_download_url(item['id'])

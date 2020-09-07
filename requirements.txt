@@ -1,5 +1,6 @@
-Flask
-Flask-PyMongo
-Flask-RESTful
-requests
-requests-oauthlib
+coloredlogs==14.0
+Flask==1.1.2
+Flask-PyMongo==2.3.0
+Flask-RESTful==0.3.8
+requests==2.24.0
+requests-oauthlib==1.3.0

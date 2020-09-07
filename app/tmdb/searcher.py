@@ -3,7 +3,7 @@
 import re
 
 import json
-from app.tmdb import Movie
+from .tmdb_helper import Movie
 
 movie = Movie()
 movie.api_key = ''
