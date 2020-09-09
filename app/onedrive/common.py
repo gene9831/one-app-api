@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 import logging
 import os
-import threading
 import time
 
 from oauthlib.oauth2 import OAuth2Error
@@ -31,28 +30,12 @@ days_12 = 12
 
 class Auth:
 
-    def __init__(self, app_id, app_secret, redirect_url, token=None, _refresh_time=days_12):
+    def __init__(self, app_id, app_secret, redirect_url, token=None, drive_id=None):
         self.app_id = app_id
-        self.app_id2 = app_id.split('-')[0]
         self.app_secret = app_secret
         self.redirect_url = redirect_url
         self.token = token
-        self._refresh_time = _refresh_time  # 能刷新的token的最长时间为14天
-        self.auto_refresh_timer = None
-
-        if token:
-            self.save_token(token)
-
-    @property
-    def refresh_time(self):
-        return self._refresh_time
-
-    @refresh_time.setter
-    def refresh_time(self, _refresh_time):
-        if _refresh_time <= days_12:
-            self._refresh_time = _refresh_time
-        else:
-            self._refresh_time = days_12
+        self.drive_id = drive_id
 
     # Method to generate a sign-in url
     def get_sign_in_url(self):
@@ -82,25 +65,17 @@ class Auth:
             logger.error(e)
 
         # First get token, save it
-        # 如果token是None也save一下，保证自动刷新的状态是正确的
-        self.save_token(token)
+        # 如果token是None也save一下，保证数据库实时更新
+        self.write_token(token)
         return token
 
-    # 通过save_token来确定自动刷新的状态，所以写入token只用这个方法
-    def save_token(self, token):
+    def write_token(self, token):
         self.token = token
-
-        if token is not None:
-            self.start_auto_refresh_token()  # 开始自动刷新
-        else:
-            self.stop_auto_refresh_token()  # 停止自动刷新
 
     def get_token(self):
         token = self.token
 
         if token is None:
-            # 如果token是None也save一下，保证自动刷新的状态是正确的
-            self.save_token(None)
             return None
 
         # Check expiration
@@ -124,29 +99,63 @@ class Auth:
             except OAuth2Error as e:
                 logger.error(e)
 
-            self.save_token(token)
+            self.write_token(token)
 
         return token
 
-    def auto_refresh_token(self):
-        self.get_token()
 
-        self.auto_refresh_timer = threading.Timer(self._refresh_time * 24 * 3600,
-                                                  self.auto_refresh_token)
-        self.auto_refresh_timer.start()
+class Url:
+    drive = 'https://graph.microsoft.com/v1.0/me/drive'
+    root = '{}/root'.format(drive)
+    items = '{}/items'.format(drive)
 
-    def start_auto_refresh_token(self):
-        # 如果是一个timer且正在运行，直接返回。否则new一个timer
-        if isinstance(self.auto_refresh_timer, threading.Timer) and self.auto_refresh_timer.is_alive():
-            return
 
-        # new a timer
-        logger.info('app_id({}) start auto refresh token'.format(self.app_id2))
-        self.auto_refresh_timer = threading.Timer(self._refresh_time * 24 * 3600,
-                                                  self.auto_refresh_token)
-        self.auto_refresh_timer.start()
+def graph_client_request(graph_client, method, url, try_times=3,
+                         params=None, data=None, headers=None,
+                         files=None, timeout=None, json=None):
+    res = None
+    while try_times > 0 and res is None:
+        try:
+            res = graph_client.request(method, url,
+                                       params=params, data=data, headers=headers,
+                                       files=files, timeout=timeout, json=json)
+        except ConnectionError as e:
+            logger.error(e)
+        try_times -= 1
+    return res
 
-    def stop_auto_refresh_token(self):
-        if isinstance(self.auto_refresh_timer, threading.Timer):
-            logger.info('app_id({}) stop auto refresh token'.format(self.app_id2))
-            self.auto_refresh_timer.cancel()
+
+class Drive:
+    @staticmethod
+    def delta(auth, url=None):
+        graph_client = OAuth2Session(token=auth.get_token())
+
+        if url is None:
+            url = '{}/delta'.format(Url.root)
+
+        data = {'@odata.nextLink': url}
+        while '@odata.nextLink' in data.keys():
+            data = graph_client.get(data['@odata.nextLink']).json()
+            yield data
+
+    @staticmethod
+    def item(auth, item_id):
+        graph_client = OAuth2Session(token=auth.get_token())
+
+        return graph_client.get('{}/{}'.format(Url.items, item_id)).json()
+
+    @staticmethod
+    def create_link(auth, item_id):
+        graph_client = OAuth2Session(token=auth.get_token())
+
+        data = {'type': 'view', 'scope': 'anonymous'}
+        res = graph_client.post('{}/{}/createLink'.format(Url.items, item_id), json=data)
+        return res.json()['link']['webUrl']
+
+    @staticmethod
+    def content(auth, item_id):
+        graph_client = OAuth2Session(token=auth.get_token())
+
+        res = graph_client.get('{}/{}/content'.format(Url.items, item_id), allow_redirects=False)
+        location = res.headers.get('Location')
+        return location
