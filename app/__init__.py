@@ -8,12 +8,6 @@ from flask import Flask
 from flask_jsonrpc import JSONRPC
 from flask_pymongo import PyMongo
 
-PROJECT_DIR, PROJECT_MODULE_NAME = os.path.split(os.path.dirname(os.path.realpath(__file__)))
-
-FLASK_JSONRPC_PROJECT_DIR = os.path.join(PROJECT_DIR, os.pardir)
-if os.path.exists(FLASK_JSONRPC_PROJECT_DIR) and FLASK_JSONRPC_PROJECT_DIR not in sys.path:
-    sys.path.append(FLASK_JSONRPC_PROJECT_DIR)
-
 coloredlogs.install(level='INFO')
 logger = logging.getLogger(__name__)
 
@@ -27,7 +21,7 @@ def create_app(config_obj):
 
     # 加载配置文件
     app.config.from_object(config_obj)
-    print(app.config)
+    # print(app.config)
 
     # MongoDB数据库初始化
     mongo.init_app(app)

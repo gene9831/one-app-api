@@ -26,26 +26,16 @@ token_url = authority + token_endpoint
 logger = logging.getLogger(__name__)
 
 
-class Auth:
+class Drive:
+    drive_url = 'https://graph.microsoft.com/v1.0/me/drive'
+    root_url = '{}/root'.format(drive_url)
+    items_url = '{}/items'.format(drive_url)
 
-    def __init__(self, app_id, app_secret, redirect_url,
-                 token=None, drive_id=None, root_path='/drive/root:'):
+    def __init__(self, app_id, app_secret, redirect_url, token=None):
         self.app_id = app_id
         self.app_secret = app_secret
         self.redirect_url = redirect_url
         self.token = token
-        self.drive_id = drive_id
-        self.root_path = root_path
-
-    def json(self):
-        from numbers import Real
-        _dict = self.__dict__
-        # dictionary cannot change size during iteration. use copy()
-        for k, v in _dict.copy().items():
-            if not (v is None or
-                    isinstance(v, (Real, str, bool, list, dict))):
-                _dict.pop(k, None)
-        return _dict
 
     # Method to generate a sign-in url
     def get_sign_in_url(self):
@@ -113,59 +103,32 @@ class Auth:
 
         return token
 
-
-class Url:
-    drive = 'https://graph.microsoft.com/v1.0/me/drive'
-    root = '{}/root'.format(drive)
-    items = '{}/items'.format(drive)
-
-
-def graph_client_request(graph_client, method, url, try_times=3,
-                         params=None, data=None, headers=None,
-                         files=None, timeout=None, json=None):
-    res = None
-    while try_times > 0 and res is None:
-        try:
-            res = graph_client.request(method, url,
-                                       params=params, data=data, headers=headers,
-                                       files=files, timeout=timeout, json=json)
-        except ConnectionError as e:
-            logger.error(e)
-        try_times -= 1
-    return res
-
-
-class Drive:
-    @staticmethod
-    def delta(auth, url=None):
-        graph_client = OAuth2Session(token=auth.get_token())
+    def delta(self, url=None):
+        graph_client = OAuth2Session(token=self.get_token())
 
         if url is None:
-            url = '{}/delta'.format(Url.root)
+            url = '{}/delta'.format(self.root_url)
 
         data = {'@odata.nextLink': url}
         while '@odata.nextLink' in data.keys():
             data = graph_client.get(data['@odata.nextLink']).json()
             yield data
 
-    @staticmethod
-    def item(auth, item_id):
-        graph_client = OAuth2Session(token=auth.get_token())
+    def item(self, item_id):
+        graph_client = OAuth2Session(token=self.get_token())
 
-        return graph_client.get('{}/{}'.format(Url.items, item_id)).json()
+        return graph_client.get('{}/{}'.format(self.items_url, item_id)).json()
 
-    @staticmethod
-    def create_link(auth, item_id):
-        graph_client = OAuth2Session(token=auth.get_token())
+    def create_link(self, item_id):
+        graph_client = OAuth2Session(token=self.get_token())
 
         data = {'type': 'view', 'scope': 'anonymous'}
-        res = graph_client.post('{}/{}/createLink'.format(Url.items, item_id), json=data)
+        res = graph_client.post('{}/{}/createLink'.format(self.items_url, item_id), json=data)
         return res.json()['link']['webUrl']
 
-    @staticmethod
-    def content(auth, item_id):
-        graph_client = OAuth2Session(token=auth.get_token())
+    def content(self, item_id):
+        graph_client = OAuth2Session(token=self.get_token())
 
-        res = graph_client.get('{}/{}/content'.format(Url.items, item_id), allow_redirects=False)
+        res = graph_client.get('{}/{}/content'.format(self.items_url, item_id), allow_redirects=False)
         location = res.headers.get('Location')
         return location

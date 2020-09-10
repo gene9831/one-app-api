@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+import datetime
+
 from flask import request
 from flask_jsonrpc.exceptions import JSONRPCError
 from flask_jsonrpc.site import JSONRPCSite
@@ -27,11 +29,6 @@ class CURDCounter:
         return self.__dict__
 
 
-class UnauthorizedError(JSONRPCError):
-    code = -32800
-    message = 'Unauthorized'
-
-
 class AuthorizationSite(JSONRPCSite):
     @staticmethod
     def check_auth() -> bool:
@@ -41,5 +38,20 @@ class AuthorizationSite(JSONRPCSite):
 
     def dispatch(self, req_json):
         if not self.check_auth():
-            raise UnauthorizedError()
+            raise JSONRPCError(message='Unauthorized')
         return super(AuthorizationSite, self).dispatch(req_json)
+
+
+class Utils:
+    @staticmethod
+    def datetime_now(strf='%Y-%m-%d %H:%M'):
+        return datetime.datetime.now().strftime(strf)
+
+    @staticmethod
+    def datetime_delta(strf='%Y-%m-%d %H:%M', days=0, hours=0, minutes=0):
+        d = datetime.datetime.now() + datetime.timedelta(days=days, hours=hours, minutes=minutes)
+        return d.strftime(strf)
+
+    @staticmethod
+    def get_seconds(day):
+        return day * 24 * 3600
