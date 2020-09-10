@@ -25,17 +25,27 @@ token_url = authority + token_endpoint
 
 logger = logging.getLogger(__name__)
 
-days_12 = 12
-
 
 class Auth:
 
-    def __init__(self, app_id, app_secret, redirect_url, token=None, drive_id=None):
+    def __init__(self, app_id, app_secret, redirect_url,
+                 token=None, drive_id=None, root_path='/drive/root:'):
         self.app_id = app_id
         self.app_secret = app_secret
         self.redirect_url = redirect_url
         self.token = token
         self.drive_id = drive_id
+        self.root_path = root_path
+
+    def json(self):
+        from numbers import Real
+        _dict = self.__dict__
+        # dictionary cannot change size during iteration. use copy()
+        for k, v in _dict.copy().items():
+            if not (v is None or
+                    isinstance(v, (Real, str, bool, list, dict))):
+                _dict.pop(k, None)
+        return _dict
 
     # Method to generate a sign-in url
     def get_sign_in_url(self):

@@ -1,12 +1,13 @@
 # -*- coding: utf-8 -*-
 import logging
 import threading
+from typing import Any, Union
 
 from flask import Blueprint, request, redirect
 from flask_jsonrpc import JSONRPCBlueprint
 from flask_jsonrpc.exceptions import JSONRPCError, InvalidRequestError, InvalidParamsError
 
-from . import mongodb, root_path, AutoRefreshController, MyAuth, MyDrive
+from . import mongodb, AutoRefreshController, MyAuth, MyDrive
 from ..common import AuthorizationSite, CURDCounter
 
 logger = logging.getLogger(__name__)
@@ -22,10 +23,10 @@ def get_items(page: int = 1, limit: int = 20, sorter: dict = None) -> list:
     skip = (page - 1) * limit
     docs = []
 
-    for auth in MyAuth.authed():
+    for auth in MyAuth.authed(verify=False):
         query = {
             'parentReference.driveId': auth.drive_id,
-            'parentReference.path': {'$regex': '^' + get_root_path(auth.app_id)}
+            'parentReference.path': {'$regex': '^' + auth.root_path}
         }
         for doc in mongodb.item.find(query).skip(skip).limit(limit):
             doc.pop('_id', None)
@@ -49,7 +50,7 @@ def get_item_content(item_id: str) -> str:
     if 'folder' in doc:
         raise InvalidRequestError(data={'message': 'You cannot get content for a folder'})
 
-    app_id = get_app_id_by_item_id(item_id)
+    app_id = MyDrive.find_app_id(item_id)
     return MyDrive.content(MyAuth.create(app_id), item_id)
 
 
@@ -65,7 +66,8 @@ def get_item_link(item_id: str) -> str:
     if 'link' in doc.keys():
         return doc['link']
 
-    app_id = get_app_id_by_item_id(item_id)
+    # TODO find_app_id又用mongo查询了一下
+    app_id = MyDrive.find_app_id(item_id)
     auth = MyAuth.create(app_id)
     base_down_url = mongodb.drive.find_one({'app_id': app_id}).get('base_down_url')
 
@@ -97,7 +99,9 @@ def sign_in(app_id: str, app_secret: str, redirect_url: str) -> str:
                                   'app_secret': app_secret,
                                   'redirect_url': redirect_url,
                                   })
-    threading.Timer(60 * 5, delete_temp_auth, (state,)).start()
+    threading.Timer(10 * 60,
+                    lambda st: mongodb.auth_temp.delete_one({'state': st}),
+                    (state,)).start()
     logger.info('app_id({}) is authing'.format(app_id))
     return sign_in_url
 
@@ -119,29 +123,41 @@ def incr_update() -> dict:
 
 
 @onedrive_admin.method('Onedrive.deleteItems')
-def delete_items(drive_id: str = None) -> dict:
-    unsetter = {'$unset': {'drive_id': '',
-                           'delta_link': ''}}
-    ids = []
-    if drive_id:
-        doc = mongodb.drive.find_one({'drive_id': drive_id})
-        if doc:
-            ids.append({'drive_id': drive_id,
-                        'app_id': doc['app_id']})
-    else:
-        for auth in MyAuth.authed():
-            if auth.drive_id:
-                ids.append({'drive_id': auth.drive_id,
-                            'app_id': auth.app_id})
+def delete_items(app_id: str = None) -> dict:
+    _set = {
+        'drive_id': None,
+        'delta_link': None,
+    }
 
-    deleted_count = 0
-    for _id in ids:
-        mongodb.drive.update_one({'drive_id': _id['drive_id']}, unsetter)
-        cnt = mongodb.item.delete_many({'parentReference.driveId': _id['drive_id']}).deleted_count
-        deleted_count += cnt
-        logger.info('app_id({}) delete items: {}'.format(_id['app_id'], CURDCounter(deleted=cnt).detail()))
+    if app_id:
+        doc = mongodb.drive.find_one({'app_id': app_id})
+        if doc is None:
+            raise InvalidParamsError(data={'message': 'Cannot find drive'})
+        mongodb.drive.update_one({'app_id': app_id}, {'$set': _set})
+        count = mongodb.item.delete_many({'parentReference.driveId': doc['drive_id']}).deleted_count
+        counter = CURDCounter(deleted=count)
+        logger.info('app_id({}) delete items: {}'.format(doc['app_id'], counter.detail()))
+        return counter.json()
 
-    return CURDCounter(deleted=deleted_count).json()
+    delete_count = 0
+    for auth in MyAuth.authed(verify=False):
+        mongodb.drive.update_one({'app_id': auth.app_id}, {'$set': _set})
+        delete_count += mongodb.item.delete_many({'parentReference.driveId': auth.drive_id}).deleted_count
+
+    counter = CURDCounter(deleted=delete_count)
+    logger.info('delete all items: {}'.format(counter.detail()))
+    # clean up
+    mongodb.item.delete_many({})
+
+    return counter.json()
+
+
+@onedrive_admin.method('Onedrive.dropAll')
+def drop_all() -> bool:
+    mongodb.auth_temp.drop()
+    mongodb.drive.drop()
+    mongodb.item.drop()
+    return True
 
 
 @onedrive_admin.method('Onedrive.getDrives')
@@ -161,14 +177,6 @@ def set_root_path(app_id: str, path: str) -> int:
     return res.modified_count
 
 
-@onedrive_admin.method('Onedrive.getRootPath')
-def get_root_path(app_id: str) -> str:
-    doc = mongodb.drive.find_one({'app_id': app_id})
-    if 'root_path' in doc.keys():
-        return doc['root_path']
-    return root_path
-
-
 # -------- onedrive_route blueprint -------- #
 @onedrive_route.route('/callback', methods=['GET'])
 def callback():
@@ -181,6 +189,7 @@ def callback():
 
     if token:
         logger.info('app_id({}) is authed'.format(auth.app_id))
+        MyDrive.full_update(auth)
         AutoRefreshController.start(auth.app_id)
         return {'message': 'login successful'}
     return {'message': 'login failed'}
@@ -191,15 +200,4 @@ def link(item_id, name):
     _link = get_item_link(item_id)
     return redirect(_link)
 
-
 # -------- end of blueprint -------- #
-
-def get_app_id_by_item_id(item_id):
-    doc = mongodb.item.find_one({'id': item_id})
-    drive_id = doc['parentReference']['driveId']
-    doc = mongodb.drive.find_one({'drive_id': drive_id})
-    return doc['app_id']
-
-
-def delete_temp_auth(state):
-    mongodb.auth_temp.delete_one({'state': state})

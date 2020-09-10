@@ -10,22 +10,16 @@ from ..common import CURDCounter
 
 logger = logging.getLogger(__name__)
 mongodb = mongo.db
-root_path = '/drive/root:'
 
 
 class MyAuth(Auth):
     def write_token(self, token):
         super().write_token(token)
 
-        setter = {'$set': {
-            'app_id': self.app_id,
-            'app_secret': self.app_secret,
-            'redirect_url': self.redirect_url,
-            'token': token,
-        }}
-
         # upsert为True时，如果查询不到，则insert
-        mongodb.drive.update_one({'app_id': self.app_id}, setter, upsert=True)
+        mongodb.drive.update_one({'app_id': self.app_id},
+                                 {'$set': self.json()},
+                                 upsert=True)
         logger.info('app_id({}) token updated'.format(self.app_id))
 
         if token is None:
@@ -36,16 +30,17 @@ class MyAuth(Auth):
         doc = mongodb.drive.find_one({'app_id': app_id})
         auth = MyAuth(doc['app_id'], doc['app_secret'],
                       doc['redirect_url'], doc['token'])
-        auth.get_token()
         return auth
 
     @staticmethod
-    def authed():
+    def authed(verify=True):
         for doc in mongodb.drive.find():
-            auth = MyAuth(doc['app_id'], doc['app_secret'],
-                          doc['redirect_url'], doc['token'],
-                          drive_id=doc.get('drive_id'))
-            if auth.get_token():
+            auth = MyAuth(doc['app_id'], doc['app_secret'], doc['redirect_url'],
+                          token=doc.get('token'), drive_id=doc.get('drive_id'), root_path=doc.get('root_path'))
+            if verify:
+                if auth.get_token():
+                    yield auth
+            else:
                 yield auth
 
 
@@ -121,6 +116,13 @@ class MyDrive(Drive):
         logger.info('app_id({}) full updated: {}'.format(auth.app_id, counter.detail()))
         return counter
 
+    @staticmethod
+    def find_app_id(item_id):
+        doc = mongodb.item.find_one({'id': item_id})
+        drive_id = doc['parentReference']['driveId']
+        doc = mongodb.drive.find_one({'drive_id': drive_id})
+        return doc['app_id']
+
 
 days_12 = 12 * 24 * 3600
 
@@ -160,7 +162,8 @@ class AutoRefreshController:
 
 
 def init():
-    mongodb.auth_temp.drop()
+    # 清空 auth_temp
+    mongodb.auth_temp.delete_many({})
     authed = []
 
     # drive相关
@@ -172,15 +175,13 @@ def init():
 
     # item相关
     for auth in authed:
-        doc = mongodb.drive.find_one({'app_id': auth.app_id,
-                                      'drive_id': {'$exists': True},
-                                      })
+        doc = mongodb.drive.find_one({'app_id': auth.app_id})
         # 如果app_id对应的drive_id为空
-        if doc is None:
-            # 获取delta link和全部items
+        if doc.get('drive_id') is None:
+            # 如果app_id对应的drive_id不为None，获取delta link和全部items
             MyDrive.full_update(auth)
         else:
-            # 如果app_id对应的drive_id不为空，则访问delta link进行增量更新
+            # 如果app_id对应的drive_id不为None，则访问delta link进行增量更新
             MyDrive.incr_update(auth)
 
 
