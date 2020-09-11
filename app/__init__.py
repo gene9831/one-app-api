@@ -1,7 +1,5 @@
 # -*- coding: utf-8 -*-
 import logging
-import os
-import sys
 
 import coloredlogs
 from flask import Flask
@@ -26,11 +24,16 @@ def create_app(config_obj):
     # MongoDB数据库初始化
     mongo.init_app(app)
 
-    from app.onedrive.api import onedrive, onedrive_admin, onedrive_route
     jsonrpc.init_app(app)
-    jsonrpc.register_blueprint(app, onedrive, url_prefix='/od')
-    jsonrpc.register_blueprint(app, onedrive_admin, url_prefix='/admin/od')
 
-    app.register_blueprint(onedrive_route, url_prefix='/')
+    from app.onedrive.api import onedrive_bp, onedrive_admin_bp, onedrive_route_bp
+    jsonrpc.register_blueprint(app, onedrive_bp, url_prefix='/od')
+    jsonrpc.register_blueprint(app, onedrive_admin_bp, url_prefix='/admin/od')
+
+    app.register_blueprint(onedrive_route_bp, url_prefix='/')
+
+    from app.tmdb.api import tmdb_bp, tmdb_admin_bp
+    jsonrpc.register_blueprint(app, tmdb_bp, url_prefix='/tmdb')
+    jsonrpc.register_blueprint(app, tmdb_admin_bp, url_prefix='/admin/tmdb')
 
     return app

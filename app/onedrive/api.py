@@ -4,20 +4,20 @@ import threading
 
 from flask import Blueprint, request, redirect, abort
 from flask_jsonrpc import JSONRPCBlueprint
-from flask_jsonrpc.exceptions import JSONRPCError, InvalidRequestError, InvalidParamsError
+from flask_jsonrpc.exceptions import JSONRPCError, InvalidRequestError
 
 from . import mongodb, RefreshTimer, MyDrive
 from ..common import AuthorizationSite, CURDCounter
 
 logger = logging.getLogger(__name__)
 
-onedrive = JSONRPCBlueprint('onedrive', __name__)
-onedrive_admin = JSONRPCBlueprint('onedrive_admin', __name__, jsonrpc_site=AuthorizationSite)
-onedrive_route = Blueprint('onedrive_callback', __name__)
+onedrive_bp = JSONRPCBlueprint('onedrive', __name__)
+onedrive_admin_bp = JSONRPCBlueprint('onedrive_admin', __name__, jsonrpc_site=AuthorizationSite)
+onedrive_route_bp = Blueprint('onedrive_route', __name__)
 
 
 # -------- onedrive blueprint -------- #
-@onedrive.method('Onedrive.getItems')
+@onedrive_bp.method('Onedrive.getItems')
 def get_items(page: int = 1, limit: int = 20) -> list:
     skip = (page - 1) * limit
     docs = []
@@ -33,16 +33,16 @@ def get_items(page: int = 1, limit: int = 20) -> list:
     return docs
 
 
-@onedrive.method('Onedrive.getItem')
+@onedrive_bp.method('Onedrive.getItem')
 def get_item(item_id: str) -> dict:
     doc = mongodb.item.find_one({'id': item_id})
     if doc is None:
-        raise InvalidParamsError(data={'message': 'Cannot find item'})
+        raise InvalidRequestError(data={'message': 'Cannot find item'})
     doc.pop('_id', None)
     return doc
 
 
-@onedrive.method('Onedrive.getItemContent')
+@onedrive_bp.method('Onedrive.getItemContent')
 def get_item_content(item_id: str) -> str:
     doc = get_item(item_id)
 
@@ -55,7 +55,7 @@ def get_item_content(item_id: str) -> str:
 
 
 # -------- onedrive_admin blueprint -------- #
-@onedrive_admin.method('Onedrive.signIn')
+@onedrive_admin_bp.method('Onedrive.signIn')
 def sign_in(app_id: str, app_secret: str, redirect_url: str) -> str:
     doc = mongodb.drive.find_one({'app_id': app_id})
     if doc and doc.get('token'):
@@ -76,7 +76,7 @@ def sign_in(app_id: str, app_secret: str, redirect_url: str) -> str:
     return sign_in_url
 
 
-@onedrive_admin.method('Onedrive.getSharedItemLink')
+@onedrive_admin_bp.method('Onedrive.getSharedItemLink')
 def get_item_shared_link(item_id: str) -> str:
     doc = get_item(item_id)
 
@@ -103,7 +103,7 @@ def get_item_shared_link(item_id: str) -> str:
     return _link
 
 
-@onedrive_admin.method('Onedrive.updateItems')
+@onedrive_admin_bp.method('Onedrive.updateItems')
 def update_items() -> dict:
     counter = CURDCounter()
     for drive in MyDrive.drives():
@@ -111,7 +111,7 @@ def update_items() -> dict:
     return counter.json()
 
 
-@onedrive_admin.method('Onedrive.deleteItems')
+@onedrive_admin_bp.method('Onedrive.deleteItems')
 def delete_items(app_id: str = None) -> dict:
     _set = {
         'drive_id': None,
@@ -121,7 +121,7 @@ def delete_items(app_id: str = None) -> dict:
     if app_id:
         doc = mongodb.drive.find_one({'app_id': app_id})
         if doc is None:
-            raise InvalidParamsError(data={'message': 'Cannot find drive'})
+            raise InvalidRequestError(data={'message': 'Cannot find drive'})
         mongodb.drive.update_one({'app_id': app_id}, {'$set': _set})
         count = mongodb.item.delete_many({'parentReference.driveId': doc['drive_id']}).deleted_count
         counter = CURDCounter(deleted=count)
@@ -141,7 +141,7 @@ def delete_items(app_id: str = None) -> dict:
     return counter.json()
 
 
-@onedrive_admin.method('Onedrive.dropAll')
+@onedrive_admin_bp.method('Onedrive.dropAll')
 def drop_all() -> bool:
     mongodb.auth_temp.drop()
     mongodb.drive.drop()
@@ -149,7 +149,7 @@ def drop_all() -> bool:
     return True
 
 
-@onedrive_admin.method('Onedrive.getDrives')
+@onedrive_admin_bp.method('Onedrive.getDrives')
 def get_drives() -> list:
     data = []
     for doc in mongodb.drive.find():
@@ -160,21 +160,22 @@ def get_drives() -> list:
     return data
 
 
-@onedrive_admin.method('Onedrive.setDrivesConfig')
+@onedrive_admin_bp.method('Onedrive.setDrivesConfig')
 def set_drives_config(app_id: str, config: dict) -> dict:
     res = {}
     for k, v in config.items():
-        res[k] = mongodb.drive.update_one({'app_id': app_id}, {'$set': {k: v}}).matched_count
+        res[k] = mongodb.drive.update_one(
+            {'app_id': app_id}, {'$set': {k: v}}).modified_count
     return res
 
 
-@onedrive_admin.method('Onedrive.showTimers')
+@onedrive_admin_bp.method('Onedrive.showTimers')
 def show_timers() -> dict:
     return RefreshTimer.show()
 
 
 # -------- onedrive_route blueprint -------- #
-@onedrive_route.route('/callback', methods=['GET'])
+@onedrive_route_bp.route('/callback', methods=['GET'])
 def callback():
     state = request.args['state']
     doc = mongodb.auth_temp.find_one({'state': state})
@@ -191,7 +192,7 @@ def callback():
     return {'message': 'login failed'}
 
 
-@onedrive_route.route('/<item_id>/<name>', methods=['GET'])
+@onedrive_route_bp.route('/<item_id>/<name>', methods=['GET'])
 def item_content(item_id, name):
     if mongodb.item.find_one({'id': item_id, 'name': name}) is None:
         abort(404)

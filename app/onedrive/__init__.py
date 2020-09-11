@@ -74,7 +74,8 @@ class MyDrive(OneDrive):
                     # 增、改
                     res = mongodb.item.update_one({'id': item['id']}, {'$set': item}, upsert=True)
                     if res.matched_count > 0:
-                        counter.updated += 1
+                        if res.modified_count > 0:
+                            counter.updated += 1
                     else:
                         counter.added += 1
 
