@@ -4,14 +4,14 @@ import logging
 import threading
 
 from app import mongo
-from .common import Drive
+from .onedrive import OneDrive
 from ..common import CURDCounter, Utils
 
 logger = logging.getLogger(__name__)
 mongodb = mongo.db
 
 
-class MyDrive(Drive):
+class MyDrive(OneDrive):
     def __init__(self, app_id, app_secret, redirect_url, token=None,
                  drive_id=None, root_path='/drive/root:'):
         super().__init__(app_id, app_secret, redirect_url, token=token)

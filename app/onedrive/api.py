@@ -2,7 +2,7 @@
 import logging
 import threading
 
-from flask import Blueprint, request, redirect
+from flask import Blueprint, request, redirect, abort
 from flask_jsonrpc import JSONRPCBlueprint
 from flask_jsonrpc.exceptions import JSONRPCError, InvalidRequestError, InvalidParamsError
 
@@ -36,51 +36,22 @@ def get_items(page: int = 1, limit: int = 20) -> list:
 @onedrive.method('Onedrive.getItem')
 def get_item(item_id: str) -> dict:
     doc = mongodb.item.find_one({'id': item_id})
+    if doc is None:
+        raise InvalidParamsError(data={'message': 'Cannot find item'})
     doc.pop('_id', None)
     return doc
 
 
 @onedrive.method('Onedrive.getItemContent')
 def get_item_content(item_id: str) -> str:
-    doc = mongodb.item.find_one({'id': item_id})
-    if doc is None:
-        raise InvalidParamsError(data={'message': 'Cannot find item'})
+    doc = get_item(item_id)
 
-    if 'folder' in doc:
+    if 'folder' in doc.keys():
         raise InvalidRequestError(data={'message': 'You cannot get content for a folder'})
 
     drive_id = doc['parentReference']['driveId']
     drive = MyDrive.create_from_drive_id(drive_id)
     return drive.content(item_id)
-
-
-@onedrive.method('Onedrive.getItemLink')
-def get_item_link(item_id: str) -> str:
-    doc = mongodb.item.find_one({'id': item_id})
-    if doc is None:
-        raise InvalidParamsError(data={'message': 'Cannot find item'})
-
-    if 'folder' in doc:
-        raise InvalidRequestError(data={'message': 'You cannot get link for a folder'})
-
-    if 'link' in doc.keys():
-        return doc['link']
-
-    drive_id = doc['parentReference']['driveId']
-    drive = MyDrive.create_from_drive_id(drive_id)
-    base_down_url = mongodb.drive.find_one({'app_id': drive.app_id}).get('base_down_url')
-
-    if base_down_url is None:
-        tmp_url = drive.content(item_id)
-        symbol = 'download.aspx?'
-        base_down_url = tmp_url[:tmp_url.find(symbol) + len(symbol)] + 'share='
-        mongodb.drive.update_one({'app_id': drive.app_id}, {'$set': {'base_down_url': base_down_url}})
-
-    _link = drive.create_link(item_id)
-    _link = base_down_url + _link[_link.rfind('/') + 1:]
-
-    mongodb.item.update_one({'id': item_id}, {'$set': {'link': _link}})
-    return _link
 
 
 # -------- onedrive_admin blueprint -------- #
@@ -103,6 +74,33 @@ def sign_in(app_id: str, app_secret: str, redirect_url: str) -> str:
                     (state,)).start()
     logger.info('app_id({}) is authing'.format(app_id))
     return sign_in_url
+
+
+@onedrive_admin.method('Onedrive.getSharedItemLink')
+def get_item_shared_link(item_id: str) -> str:
+    doc = get_item(item_id)
+
+    if 'folder' in doc.keys():
+        raise InvalidRequestError(data={'message': 'You cannot get link for a folder'})
+
+    if 'link' in doc.keys():
+        return doc['link']
+
+    drive_id = doc['parentReference']['driveId']
+    drive = MyDrive.create_from_drive_id(drive_id)
+    base_down_url = mongodb.drive.find_one({'app_id': drive.app_id}).get('base_down_url')
+
+    if base_down_url is None:
+        tmp_url = drive.content(item_id)
+        symbol = 'download.aspx?'
+        base_down_url = tmp_url[:tmp_url.find(symbol) + len(symbol)] + 'share='
+        mongodb.drive.update_one({'app_id': drive.app_id}, {'$set': {'base_down_url': base_down_url}})
+
+    _link = drive.create_link(item_id)
+    _link = base_down_url + _link[_link.rfind('/') + 1:]
+
+    mongodb.item.update_one({'id': item_id}, {'$set': {'link': _link}})
+    return _link
 
 
 @onedrive_admin.method('Onedrive.updateItems')
@@ -187,15 +185,16 @@ def callback():
 
     if token:
         logger.info('app_id({}) is authed'.format(drive.app_id))
-        threading.Timer(1, drive.update_items()).start()
+        threading.Timer(1, drive.update_items).start()
         RefreshTimer.start(drive.app_id)
         return {'message': 'login successful'}
     return {'message': 'login failed'}
 
 
 @onedrive_route.route('/<item_id>/<name>', methods=['GET'])
-def link(item_id, name):
-    _link = get_item_link(item_id)
-    return redirect(_link)
-
+def item_content(item_id, name):
+    if mongodb.item.find_one({'id': item_id, 'name': name}) is None:
+        abort(404)
+    content_url = get_item_content(item_id)
+    return redirect(content_url)
 # -------- end of blueprint -------- #

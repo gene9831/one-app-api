@@ -19,17 +19,17 @@ scopes = 'offline_access files.readWrite.all'
 authority = 'https://login.microsoftonline.com/common'
 authorize_endpoint = '/oauth2/v2.0/authorize'
 token_endpoint = '/oauth2/v2.0/token'
-
 authorize_url = authority + authorize_endpoint
 token_url = authority + token_endpoint
+
+drive_url = 'https://graph.microsoft.com/v1.0/me/drive'
+root_url = '{}/root'.format(drive_url)
+item_url = '{}/items'.format(drive_url)
 
 logger = logging.getLogger(__name__)
 
 
-class Drive:
-    drive_url = 'https://graph.microsoft.com/v1.0/me/drive'
-    root_url = '{}/root'.format(drive_url)
-    items_url = '{}/items'.format(drive_url)
+class OneDrive:
 
     def __init__(self, app_id, app_secret, redirect_url, token=None):
         self.app_id = app_id
@@ -107,7 +107,7 @@ class Drive:
         graph_client = OAuth2Session(token=self.get_token())
 
         if url is None:
-            url = '{}/delta'.format(self.root_url)
+            url = '{}/delta'.format(root_url)
 
         data = {'@odata.nextLink': url}
         while '@odata.nextLink' in data.keys():
@@ -117,18 +117,18 @@ class Drive:
     def item(self, item_id):
         graph_client = OAuth2Session(token=self.get_token())
 
-        return graph_client.get('{}/{}'.format(self.items_url, item_id)).json()
+        return graph_client.get('{}/{}'.format(item_url, item_id)).json()
 
     def create_link(self, item_id):
         graph_client = OAuth2Session(token=self.get_token())
 
         data = {'type': 'view', 'scope': 'anonymous'}
-        res = graph_client.post('{}/{}/createLink'.format(self.items_url, item_id), json=data)
+        res = graph_client.post('{}/{}/createLink'.format(item_url, item_id), json=data)
         return res.json()['link']['webUrl']
 
     def content(self, item_id):
         graph_client = OAuth2Session(token=self.get_token())
 
-        res = graph_client.get('{}/{}/content'.format(self.items_url, item_id), allow_redirects=False)
+        res = graph_client.get('{}/{}/content'.format(item_url, item_id), allow_redirects=False)
         location = res.headers.get('Location')
         return location
