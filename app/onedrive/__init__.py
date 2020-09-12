@@ -3,6 +3,8 @@ import json
 import logging
 import threading
 
+import requests
+
 from app import mongo
 from .onedrive import OneDrive
 from ..common import CURDCounter, Utils
@@ -87,6 +89,12 @@ class MyDrive(OneDrive):
 
         logger.info('app_id({}) update items: {}'.format(self.app_id, counter.detail()))
         return counter
+
+    def try_to_update_items(self):
+        try:
+            self.update_items()
+        except requests.exceptions.RequestException as e:
+            logger.error('app_id({}) update items: {}'.format(self.app_id, e))
 
     @staticmethod
     def drives(verify=True):
@@ -184,7 +192,7 @@ def init():
         logger.info('app_id({}) is authed from cache'.format(drive.app_id))
         RefreshTimer.start(drive.app_id)
 
-        drive.update_items()
+        drive.try_to_update_items()
 
 
 init()

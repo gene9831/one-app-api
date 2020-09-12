@@ -2,7 +2,7 @@
 from flask_jsonrpc import JSONRPCBlueprint
 from flask_jsonrpc.exceptions import InvalidRequestError
 
-from . import mongodb, MyTMDb, TMDB_CONFIG_ID
+from . import mongodb, TMDB_CONFIG_ID, MyTMDb
 from ..common import AuthorizationSite
 
 tmdb_bp = JSONRPCBlueprint('tmdb', __name__)
@@ -24,7 +24,7 @@ def get_data_by_item_id(item_id: str) -> dict:
     tmdb_id = doc.get('tmdb_id')
 
     if tmdb_id is None:
-        tmdb_id = MyTMDb.search_movie_id(doc['name'])
+        tmdb_id = MyTMDb().search_movie_id(doc['name'])
 
     mongodb.item.update_one({'id': item_id}, {'$set': {'tmdb_id': tmdb_id}})
 
@@ -34,7 +34,7 @@ def get_data_by_item_id(item_id: str) -> dict:
         doc.pop('_id', None)
         return doc
 
-    res_json = MyTMDb.movie(tmdb_id)
+    res_json = MyTMDb().movie(tmdb_id)
     mongodb.tmdb.update_one({'id': tmdb_id}, {'$set': res_json}, upsert=True)
     return res_json
 
@@ -52,7 +52,17 @@ def get_config() -> dict:
 @tmdb_admin_bp.method('TMDB.setConfig')
 def set_config(config: dict) -> dict:
     res = {}
+    # 遍历两层配置
     for k, v in config.items():
-        res[k] = mongodb.tmdb.update_one(
-            {'id': TMDB_CONFIG_ID}, {'$set': {k: v}}).modified_count
+        if not isinstance(v, dict):
+            res[k] = mongodb.tmdb.update_one(
+                {'id': TMDB_CONFIG_ID}, {'$set': {k: v}}).modified_count
+            continue
+
+        res2 = {}
+        for _k, _v in v.items():
+            res2[_k] = mongodb.tmdb.update_one(
+                {'id': TMDB_CONFIG_ID}, {'$set': {k + '.' + _k: _v}}).modified_count
+        res[k] = res2
+
     return res

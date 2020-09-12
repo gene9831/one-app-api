@@ -160,8 +160,8 @@ def get_drives() -> list:
     return data
 
 
-@onedrive_admin_bp.method('Onedrive.setDrivesConfig')
-def set_drives_config(app_id: str, config: dict) -> dict:
+@onedrive_admin_bp.method('Onedrive.setDrive')
+def set_drive(app_id: str, config: dict) -> dict:
     res = {}
     for k, v in config.items():
         res[k] = mongodb.drive.update_one(
@@ -186,7 +186,7 @@ def callback():
 
     if token:
         logger.info('app_id({}) is authed'.format(drive.app_id))
-        threading.Timer(1, drive.update_items).start()
+        threading.Timer(1, drive.try_to_update_items()).start()
         RefreshTimer.start(drive.app_id)
         return {'message': 'login successful'}
     return {'message': 'login failed'}
