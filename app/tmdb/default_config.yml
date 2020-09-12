@@ -1,6 +1,14 @@
-params:
-  language: 'zh-cn'
-headers:
-  Authorization:
-  Content-Type: 'application/json;charset=utf-8'
-proxies: {}
+language:
+  value: 'zh-cn'
+  field: 'params'
+  comment: '语言-地区'
+
+Authorization:
+  field: 'headers'
+  comment: 'Bearer Token'
+  secret: true
+
+proxies:
+  type: 'dict'
+  value: {}
+  comment: '代理配置'

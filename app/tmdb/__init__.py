@@ -8,6 +8,7 @@ from flask_jsonrpc.exceptions import InvalidRequestError
 
 from app import mongo
 from .tmdb import TMDb
+from ..common import Configs
 
 logger = logging.getLogger(__name__)
 mongodb = mongo.db
@@ -21,9 +22,10 @@ class MyTMDb(TMDb):
         super().__init__()
 
         doc = mongodb.tmdb.find_one({'id': TMDB_CONFIG_ID}) or {}
-        self.session.params.update(doc.get('params') or {})
-        self.session.headers.update(doc.get('headers') or {})
-        self.session.proxies = doc.get('proxies') or {}
+        config = Configs.clarify(doc)
+        self.session.params.update(config.get('params') or {})
+        self.session.headers.update(config.get('headers') or {})
+        self.session.proxies = config.get('proxies') or {}
 
     def movie(self, movie_id, params=None):
         params = {
@@ -36,7 +38,7 @@ class MyTMDb(TMDb):
         return res_json
 
     def search_movie_id(self, filename):
-        name, year = self.parse_file_name(filename)
+        name, year = self.parse_movie_name(filename)
 
         if name is None:
             raise InvalidRequestError(data={'message': 'Invalid filename'})
@@ -54,7 +56,7 @@ class MyTMDb(TMDb):
         return res_json['results'][0]['id']
 
     @staticmethod
-    def parse_file_name(s):
+    def parse_movie_name(s):
         # 倒置字符串是为了处理资源本身名字带年份的情况
         # 比如2012世界某日这部电影"2012.2009.1080p.BluRay"
         s = s[::-1]
@@ -67,36 +69,48 @@ class MyTMDb(TMDb):
         year = result.group()[::-1].replace('.', ' ').strip()
         return name, year
 
+    @staticmethod
+    def parse_tv_series_name(s):
+        pass
 
-PROJECT_DIR, PROJECT_MODULE_NAME = os.path.split(os.path.dirname(os.path.realpath(__file__)))
 
-default_configs = {}
-with open(os.path.join(PROJECT_DIR, PROJECT_MODULE_NAME, 'default_config.yml')) as f:
-    default_configs.update(yaml.load(f, Loader=yaml.FullLoader))
+def update_config(config, replace=False):
+    res = {}
+    for k, v in config.items():
+        res1 = {}
+        for _k, _v in v.items():
+            complete_k = k + '.' + _k
+            query = {'id': TMDB_CONFIG_ID}
+            if not replace:
+                query.update({complete_k: {'$exists': False}})
+
+            modified_count = mongodb.tmdb.update_one(
+                query, {'$set': {complete_k: _v}}).modified_count
+            if modified_count == 1:
+                # modified_count 等于 1 说明更新了 key 对应的配置
+                res1[_k] = modified_count
+        if res1:
+            res[k] = res1
+    return res
 
 
 def init():
+    project_dir, project_module_name = os.path.split(os.path.dirname(os.path.realpath(__file__)))
+
+    default_configs = {}
+    with open(os.path.join(project_dir, project_module_name, 'default_config.yml'), encoding='utf8') as f:
+        default_configs.update(Configs.detail(yaml.load(f, Loader=yaml.FullLoader)))
+
     # 存在则不插入，不存在则插入
     r = mongodb.tmdb.update_one({'id': TMDB_CONFIG_ID},
                                 {'$setOnInsert': default_configs},
                                 upsert=True)
     # matched_count 等于 0 说明执行了 $setOnInsert
     if r.matched_count == 0:
+        logger.info('tmdb default config loaded')
         return
 
-    # 下面循环都是在 存在 (id 为 TMDB_CONFIG_ID) 的文档的情况下
-    for k, v in default_configs.items():
-        # 不存在 key 才更新 (key, value)
-        # 这里不能加 upsert=True，不然会一直插入新文档
-        modified_count = mongodb.tmdb.update_one({'id': TMDB_CONFIG_ID, k: {'$exists': False}},
-                                                 {'$set': {k: v}}).modified_count
-        # modified_count 等于 1 说明刚刚更新了 key 对应的默认配置
-        # modified_count 等于 0 说明已经存在 key 对应的配置，继续遍历看是否有需要增加的配置
-        if modified_count == 0 and isinstance(v, dict):
-            for _k, _v in v.items():
-                _k = k + '.' + _k
-                # 不存在 key 才更新 (key, value)
-                mongodb.tmdb.update_one({'id': TMDB_CONFIG_ID, _k: {'$exists': False}}, {'$set': {_k: _v}})
+    logger.info('tmdb config updated: {}'.format(update_config(default_configs)))
 
 
 init()

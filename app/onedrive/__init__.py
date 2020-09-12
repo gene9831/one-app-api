@@ -21,14 +21,7 @@ class MyDrive(OneDrive):
         self.root_path = root_path
 
     def json(self):
-        from numbers import Real
-        _dict = self.__dict__
-        # dictionary cannot change size during iteration. use copy()
-        for k, v in _dict.copy().items():
-            if not (v is None or
-                    isinstance(v, (Real, str, bool, list, dict))):
-                _dict.pop(k, None)
-        return _dict
+        return self.__dict__.copy()
 
     def write_token(self, token):
         super().write_token(token)
@@ -56,8 +49,8 @@ class MyDrive(OneDrive):
         counter = CURDCounter()
 
         for data in self.delta(delta_link):
-            if delta_link:
-                print(json.dumps(data))
+            # if delta_link:
+            #     print(json.dumps(data))
             if '@odata.deltaLink' in data.keys():
                 delta_link = data['@odata.deltaLink']
 
