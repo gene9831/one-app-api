@@ -3,6 +3,7 @@ import logging
 import os
 import time
 
+import requests
 from oauthlib.oauth2 import OAuth2Error
 from requests_oauthlib import OAuth2Session
 
@@ -111,24 +112,43 @@ class OneDrive:
 
         data = {'@odata.nextLink': url}
         while '@odata.nextLink' in data.keys():
-            data = graph_client.get(data['@odata.nextLink']).json()
+            # data = graph_client.get(data['@odata.nextLink']).json()
+            data = self.request(graph_client, 'GET', data['@odata.nextLink']).json()
             yield data
 
     def item(self, item_id):
         graph_client = OAuth2Session(token=self.get_token())
 
-        return graph_client.get('{}/{}'.format(item_url, item_id)).json()
+        # return graph_client.get('{}/{}'.format(item_url, item_id)).json()
+        return self.request(graph_client, 'GET', '{}/{}'.format(item_url, item_id)).json()
 
     def create_link(self, item_id):
         graph_client = OAuth2Session(token=self.get_token())
 
         data = {'type': 'view', 'scope': 'anonymous'}
-        res = graph_client.post('{}/{}/createLink'.format(item_url, item_id), json=data)
+        # res = graph_client.post('{}/{}/createLink'.format(item_url, item_id), json=data)
+        res = self.request(graph_client, 'POST', '{}/{}/createLink'.format(item_url, item_id), json=data)
         return res.json()['link']['webUrl']
 
     def content(self, item_id):
         graph_client = OAuth2Session(token=self.get_token())
 
-        res = graph_client.get('{}/{}/content'.format(item_url, item_id), allow_redirects=False)
+        # res = graph_client.get('{}/{}/content'.format(item_url, item_id), allow_redirects=False)
+        res = self.request(graph_client, 'GET', '{}/{}/content'.format(item_url, item_id), allow_redirects=False)
         location = res.headers.get('Location')
         return location
+
+    @staticmethod
+    def request(graph_client: OAuth2Session,
+                method, url, try_times=3,
+                data=None, headers=None, **kwargs):
+        res = None
+        while try_times > 0 and res is None:
+            try:
+                res = graph_client.request(method, url, data=data, headers=headers, **kwargs)
+            except requests.exceptions.RequestException as e:
+                if try_times == 1:
+                    # 最后一次还是失败
+                    raise requests.exceptions.RequestException(e)
+            try_times -= 1
+        return res
