@@ -8,7 +8,8 @@ API 有两种，分别是 `flask-jsonrpc` 和 `flask route`。
 ## 先决条件
 
 向 Microsoft 标识平台注册应用程序，[点击这里](https://docs.microsoft.com/zh-cn/graph/auth-register-app-v2?view=graph-rest-1.0)。更多 api 请查阅 [微软官方文档](https://docs.microsoft.com/zh-cn/graph/api/resources/onedrive?view=graph-rest-1.0)
-![注册应用程序](./register-app.png)
+
+<img src="./register-app.png" width="1012" alt="注册应用程序">
 
 ## 用户验证
 
