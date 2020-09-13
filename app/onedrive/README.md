@@ -57,7 +57,7 @@ X-Password: secret
 }
 ```
 
-> **注意**
+> **注意：**
 > 需要管理员的 rpc 请求后面会改成使用 token 认证，而不需要每次都传输用户名密码
 
 ### 登陆微软账号进行授权
@@ -109,9 +109,9 @@ Content-Type: application/json
     "@odata": {
       "type": "#microsoft.graph.driveItem"
     },
-    // ...
     "id": "01ZAO4SQKCPMQSGPAAQZCYO7B6LP3QOKCI",
-    "name": "filename",e": 12345
+    "name": "filename",
+    "size": 12345
   }
 }
 ```
@@ -138,15 +138,12 @@ Content-Type: application/json
       "id": "01ZAO4SQKCPMQSGPAAQZCYO7B6LP3QOKCH",
       "name": "file1",
       "size": 12345
-      // ...
     },
     {
       "id": "01ZAO4SQKCPMQSGPAAQZCYO7B6LP3QOKCI",
       "name": "file2",
       "size": 12345
-      // ...
     }
-    // ...
   ]
 }
 ```
