@@ -55,8 +55,8 @@ def get_item_content(item_id: str) -> str:
 
 
 # -------- onedrive_admin blueprint -------- #
-@onedrive_admin_bp.method('Onedrive.signIn')
-def sign_in(app_id: str, app_secret: str, redirect_url: str) -> str:
+@onedrive_admin_bp.method('Onedrive.getSignInUrl')
+def get_sign_in_url(app_id: str, app_secret: str, redirect_url: str) -> str:
     doc = mongodb.drive.find_one({'app_id': app_id})
     if doc and doc.get('token'):
         raise JSONRPCError(data={'message': 'repeat sign in'})
@@ -189,6 +189,7 @@ def callback():
         threading.Timer(1, drive.try_to_update_items()).start()
         RefreshTimer.start(drive.app_id)
         return {'message': 'login successful'}
+    # 仅仅是为了展示结果，你可以改成任何你想要的页面
     return {'message': 'login failed'}
 
 
