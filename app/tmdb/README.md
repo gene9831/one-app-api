@@ -3,6 +3,8 @@
 > **注意：**
 > 本文中提到的管理员指的是本项目搭建的服务的管理员
 
+官方 api 请查阅 [The Movie Database API](https://developers.themoviedb.org/3/getting-started/introduction)
+
 ## 先决条件
 
 1. 获取 TMDB API 读访问令牌。不是 API 密钥。类似这样的
