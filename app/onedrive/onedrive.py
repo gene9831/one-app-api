@@ -66,14 +66,15 @@ class OneDrive:
             logger.error(e)
 
         # First get token, save it
-        # 如果token是None也save一下，保证数据库实时更新
-        self.write_token(token)
+        self.token = token
         return token
 
-    def write_token(self, token):
-        self.token = token
-
-    def get_token(self):
+    def get_token(self, refresh_now=False):
+        """
+        Get token
+        :param refresh_now: 为 True 则立即刷新
+        :return:
+        """
         token = self.token
 
         if token is None:
@@ -83,7 +84,7 @@ class OneDrive:
         now = time.time()
         # Subtract 5 minutes from expiration to account for clock skew
         expire_time = token['expires_at'] - 300
-        if now >= expire_time:
+        if now >= expire_time or refresh_now:
             # Refresh the token
             aad_auth = OAuth2Session(self.app_id,
                                      token=self.token,
@@ -95,35 +96,42 @@ class OneDrive:
             }
             token = None
             try:
+                # TODO 添加尝试次数
                 # 如果token超过14天，或者id、secret已失效，会抛出异常
                 token = aad_auth.refresh_token(token_url, **refresh_params)
             except OAuth2Error as e:
                 logger.error(e)
 
-            self.write_token(token)
+            self.token = token
+            self.do_when_token_updated()
 
         return token
 
-    def delta(self, url=None):
-        graph_client = OAuth2Session(token=self.get_token())
+    def do_when_token_updated(self):
+        pass
 
-        if url is None:
+    def delta(self, url=None):
+        graph_client = OAuth2Session(token=self.token)
+
+        if not url:
             url = '{}/delta'.format(root_url)
 
+        res = []
         data = {'@odata.nextLink': url}
         while '@odata.nextLink' in data.keys():
             # data = graph_client.get(data['@odata.nextLink']).json()
             data = self.request(graph_client, 'GET', data['@odata.nextLink']).json()
-            yield data
+            res.append(data)
+        return res
 
     def item(self, item_id):
-        graph_client = OAuth2Session(token=self.get_token())
+        graph_client = OAuth2Session(token=self.token)
 
         # return graph_client.get('{}/{}'.format(item_url, item_id)).json()
         return self.request(graph_client, 'GET', '{}/{}'.format(item_url, item_id)).json()
 
     def create_link(self, item_id):
-        graph_client = OAuth2Session(token=self.get_token())
+        graph_client = OAuth2Session(token=self.token)
 
         data = {'type': 'view', 'scope': 'anonymous'}
         # res = graph_client.post('{}/{}/createLink'.format(item_url, item_id), json=data)
@@ -131,7 +139,7 @@ class OneDrive:
         return res.json()['link']['webUrl']
 
     def content(self, item_id):
-        graph_client = OAuth2Session(token=self.get_token())
+        graph_client = OAuth2Session(token=self.token)
 
         # res = graph_client.get('{}/{}/content'.format(item_url, item_id), allow_redirects=False)
         res = self.request(graph_client, 'GET', '{}/{}/content'.format(item_url, item_id), allow_redirects=False)

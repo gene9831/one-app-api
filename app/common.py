@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 import datetime
+import os
 
+import yaml
 from flask import request
 from flask_jsonrpc.exceptions import JSONRPCError
 from flask_jsonrpc.site import JSONRPCSite
@@ -44,17 +46,16 @@ class AuthorizationSite(JSONRPCSite):
 
 class ConfigItem:
     def __init__(self, **kwargs):
-        minimal = kwargs.get('minimal') or False
+        original = kwargs.get('original') or False
         self.value = kwargs.get('value')
-        if minimal is False or kwargs.get('type') is not None:
+        if original is False or kwargs.get('type') is not None:
             self.type = kwargs.get('type') or 'str'
-        if minimal is False or kwargs.get('field') is not None:
+        if original is False or kwargs.get('field') is not None:
             self.field = kwargs.get('field') or ''
-        if minimal is False or kwargs.get('comment') is not None:
+        if original is False or kwargs.get('comment') is not None:
             self.comment = kwargs.get('comment') or ''
-        if minimal is False or kwargs.get('secret') is not None:
+        if original is False or kwargs.get('secret') is not None:
             self.secret = kwargs.get('secret') or False  # 默认值 False
-        # self.editable = kwargs.get('editable') or kwargs.get('editable') is None  # 默认值 True
 
     def __repr__(self):
         return str(self.__dict__)
@@ -73,29 +74,51 @@ class Configs:
     Detail = 'detail'
     Clarify = 'clarify'
     Sensitive = 'sensitive'
-    MiniMal = 'minimal'
+    Original = 'original'
+
+    def __init__(self, config: dict):
+        self._original = self.gen(config, _type=self.Original)
+
+    def original(self):
+        return self._original
+
+    def default(self):
+        """
+        全部字段齐全，一般用于初始化
+        :return:
+        """
+        return self.gen(self._original, _type=self.Detail)
+
+    def sensitive(self):
+        """
+        如果 secret 为 True，value 会变成 ********
+        :return:
+        """
+        return self.gen(self._original, _type=self.Sensitive)
+
+    def get_v(self, key):
+        if key in self._original.keys():
+            return self._original[key].get('value')
+        return None
+
+    def set_v(self, key, value):
+        if key in self._original.keys():
+            self._original[key]['value'] = value
+
+    def get_field(self, field):
+        res = {}
+        for k, v in self._original.items():
+            if v.get('field') == field:
+                res[k] = v.get('value')
+        return res
 
     @staticmethod
     def gen(_dict: dict, _type=Detail):
         if not (_type == Configs.Detail or _type == Configs.Clarify or
-                _type == Configs.Sensitive or _type == Configs.MiniMal):
+                _type == Configs.Sensitive or _type == Configs.Original):
             return {}
 
         configs = {}
-
-        if _type == Configs.Clarify:
-            for k, v in _dict.items():
-                if not isinstance(v, dict):
-                    continue
-                v = ConfigItem(**v).json()
-                field = v['field']
-                if field:
-                    if configs.get(field) is None:
-                        configs[field] = {}
-                    configs[field].update({k: v['value']})
-                else:
-                    configs.update({k: v['value']})
-            return configs
 
         for k, v in _dict.items():
             if not isinstance(v, dict):
@@ -104,25 +127,16 @@ class Configs:
                 configs[k] = ConfigItem(**v).json()
             elif _type == Configs.Sensitive:
                 configs[k] = ConfigItem(**v).sensitive()
-            elif _type == Configs.MiniMal:
-                configs[k] = ConfigItem(**v, minimal=True).json()
+            elif _type == Configs.Original:
+                configs[k] = ConfigItem(**v, original=True).json()
         return configs
 
     @staticmethod
-    def detail(_dict):
-        return Configs.gen(_dict, _type=Configs.Detail)
-
-    @staticmethod
-    def clarify(_dict):
-        return Configs.gen(_dict, _type=Configs.Clarify)
-
-    @staticmethod
-    def sensitive(_dict):
-        return Configs.gen(_dict, _type=Configs.Sensitive)
-
-    @staticmethod
-    def minimal(_dict):
-        return Configs.gen(_dict, _type=Configs.MiniMal)
+    def create(path):
+        config = {}
+        with open(os.path.join(path), encoding='utf8') as f:
+            config.update(yaml.load(f, Loader=yaml.FullLoader))
+        return Configs(config)
 
 
 class Utils:

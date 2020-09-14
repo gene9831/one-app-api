@@ -3,7 +3,6 @@ import logging
 import os
 import re
 
-import yaml
 from flask_jsonrpc.exceptions import InvalidRequestError
 
 from app import mongo
@@ -15,6 +14,9 @@ mongodb = mongo.db
 
 TMDB_CONFIG_ID = 'tmdb_config'
 
+project_dir, project_module_name = os.path.split(os.path.dirname(os.path.realpath(__file__)))
+DEFAULT_CONFIG_PATH = os.path.join(project_dir, project_module_name, 'default_config.yml')
+
 
 class MyTMDb(TMDb):
 
@@ -22,10 +24,11 @@ class MyTMDb(TMDb):
         super().__init__()
 
         doc = mongodb.tmdb.find_one({'id': TMDB_CONFIG_ID}) or {}
-        config = Configs.clarify(doc)
-        self.session.params.update(config.get('params') or {})
-        self.session.headers.update(config.get('headers') or {})
-        self.session.proxies = config.get('proxies') or {}
+        config_obj = Configs(doc)
+
+        self.session.params.update(config_obj.get_field('params') or {})
+        self.session.headers.update(config_obj.get_field('headers') or {})
+        self.session.proxies = config_obj.get_v('proxies') or {}
 
     def movie(self, movie_id, params=None):
         params = {
@@ -74,15 +77,25 @@ class MyTMDb(TMDb):
         pass
 
 
-def update_config(config, replace=False):
+def update_config(config, add_if_not_exist=False):
+    """
+    初始化或更新配置项
+    :param config:
+    :param add_if_not_exist: True: 不存在时新增，一般用于初始化；
+                             False: 存在时才更新，一般用于后面更新配置。
+                             更新时不会新增那些不在默认配置里面的配置项
+    :return:
+    """
     res = {}
     for k, v in config.items():
         res1 = {}
         for _k, _v in v.items():
             complete_k = k + '.' + _k
-            query = {'id': TMDB_CONFIG_ID}
-            if not replace:
-                query.update({complete_k: {'$exists': False}})
+
+            query = {
+                'id': TMDB_CONFIG_ID,
+                complete_k: {'$exists': not add_if_not_exist}
+            }
 
             modified_count = mongodb.tmdb.update_one(
                 query, {'$set': {complete_k: _v}}).modified_count
@@ -95,12 +108,7 @@ def update_config(config, replace=False):
 
 
 def init():
-    project_dir, project_module_name = os.path.split(os.path.dirname(os.path.realpath(__file__)))
-
-    default_configs = {}
-    with open(os.path.join(project_dir, project_module_name, 'default_config.yml'), encoding='utf8') as f:
-        default_configs.update(Configs.detail(yaml.load(f, Loader=yaml.FullLoader)))
-
+    default_configs = Configs.create(DEFAULT_CONFIG_PATH).default()
     # 存在则不插入，不存在则插入
     r = mongodb.tmdb.update_one({'id': TMDB_CONFIG_ID},
                                 {'$setOnInsert': default_configs},
@@ -110,7 +118,8 @@ def init():
         logger.info('tmdb default config loaded')
         return
 
-    logger.info('tmdb config updated: {}'.format(update_config(default_configs)))
+    # 初始化默认配置
+    update_config(default_configs, add_if_not_exist=True)
 
 
 init()

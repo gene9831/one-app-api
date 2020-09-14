@@ -3,6 +3,11 @@ language:
   field: 'params'
   comment: '语言-地区'
 
+include_adult:
+  comment: '搜索是否包含成人内容'
+  value: 'false'
+  field: 'params'
+
 Authorization:
   field: 'headers'
   comment: 'Bearer Token'

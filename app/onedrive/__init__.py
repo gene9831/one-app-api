@@ -1,49 +1,37 @@
 # -*- coding: utf-8 -*-
-import json
 import logging
+import os
 import threading
-
-import requests
 
 from app import mongo
 from .onedrive import OneDrive
-from ..common import CURDCounter, Utils
+from ..common import CURDCounter, Utils, Configs
 
 logger = logging.getLogger(__name__)
 mongodb = mongo.db
 
+project_dir, project_module_name = os.path.split(os.path.dirname(os.path.realpath(__file__)))
+DEFAULT_CONFIG_PATH = os.path.join(project_dir, project_module_name, 'default_config.yml')
+
 
 class MyDrive(OneDrive):
-    def __init__(self, app_id, app_secret, redirect_url, token=None,
-                 drive_id=None, root_path='/drive/root:'):
-        super().__init__(app_id, app_secret, redirect_url, token=token)
-        self.drive_id = drive_id
-        self.root_path = root_path
+    def __init__(self, **kwargs):
+        self.config_obj: Configs = kwargs.get('config_obj')
 
-    def json(self):
-        return self.__dict__.copy()
+        super().__init__(kwargs.get('app_id'),
+                         kwargs.get('app_secret') or self.config_obj.get_v('app_secret'),
+                         kwargs.get('redirect_url') or self.config_obj.get_v('redirect_url'),
+                         kwargs.get('token'))
 
-    def write_token(self, token):
-        super().write_token(token)
-
-        # upsert为True时，如果查询不到，则insert
-        mongodb.drive.update_one({'app_id': self.app_id},
-                                 {'$set': self.json()},
-                                 upsert=True)
-        logger.info('app_id({}) token updated'.format(self.app_id))
-
-        if token is None:
-            logger.warning('app_id({}) token is null'.format(self.app_id))
+    def do_when_token_updated(self):
+        super().do_when_token_updated()
+        modified_count = mongodb.drive.update_one(
+            {'app_id': self.app_id}, {'$set': {'token': self.token}}).modified_count
+        if modified_count > 0:
+            logger.info('app_id({}) token updated'.format(self.app_id))
 
     def update_items(self):
-        """
-        如果app_id对应的drive_id不为None，获取delta link和全部items
-        如果app_id对应的drive_id不为None，则访问delta link进行增量更新
-        :return:
-        """
-
         doc = mongodb.drive.find_one({'app_id': self.app_id})
-        drive_id = doc.get('drive_id')
         delta_link = doc.get('delta_link')
 
         counter = CURDCounter()
@@ -51,6 +39,9 @@ class MyDrive(OneDrive):
         for data in self.delta(delta_link):
             # if delta_link:
             #     print(json.dumps(data))
+            if 'error' in data.keys():
+                raise Exception('{}. {}'.format(data['error'].get('code'), data['error'].get('message')))
+
             if '@odata.deltaLink' in data.keys():
                 delta_link = data['@odata.deltaLink']
 
@@ -59,14 +50,12 @@ class MyDrive(OneDrive):
                 if item['@odata.type'] != '#microsoft.graph.driveItem':
                     continue
 
-                if drive_id is None:
-                    drive_id = item['parentReference']['driveId']
-
                 if 'deleted' in item.keys() and item['deleted'].get('state') == 'deleted':
                     # 删
                     counter.deleted += mongodb.item.delete_one({'id': item['id']}).deleted_count
                 else:
                     # 增、改
+                    item['app_id'] = self.app_id
                     res = mongodb.item.update_one({'id': item['id']}, {'$set': item}, upsert=True)
                     if res.matched_count > 0:
                         if res.modified_count > 0:
@@ -75,57 +64,46 @@ class MyDrive(OneDrive):
                         counter.added += 1
 
         mongodb.drive.update_one({'app_id': self.app_id},
-                                 {'$set': {
-                                     'drive_id': drive_id,
-                                     'delta_link': delta_link,
-                                 }})
+                                 {'$set': {'delta_link': delta_link, }})
 
         logger.info('app_id({}) update items: {}'.format(self.app_id, counter.detail()))
         return counter
 
-    def try_to_update_items(self):
-        try:
-            self.update_items()
-        except requests.exceptions.RequestException as e:
-            logger.error('app_id({}) update items: {}'.format(self.app_id, e))
-
     @staticmethod
-    def drives(verify=True):
+    def drives(update_token=True):
         """
         从 mongodb 获取所有已缓存的 drive
-        :param verify: 验证 token 是否仍然有效
+        :param update_token: 是否更新 token。如果不需要请求任何 API，token 没必要更新
         :return:
         """
         for doc in mongodb.drive.find():
-            drive = MyDrive.create_from_doc(doc)
-            if verify:
-                if drive.get_token():
-                    yield drive
-            else:
-                yield drive
+            drive = MyDrive.create(doc, update_token=update_token)
+            if drive.token is None:
+                logger.warning('app_id({}) token is null'.format(drive.app_id))
+            yield drive
 
     @staticmethod
-    def create(app_id):
-        doc = mongodb.drive.find_one({'app_id': app_id})
-        drive = MyDrive.create_from_doc(doc)
+    def create(doc, update_token=True):
+        """
+        从 create 方法创建的实例都已经更新过 token 了，
+        短时间内直接请求 API 即可，不需要再 get_token。
+        :param doc: Mongodb 文档
+        :param update_token: 是否更新 token。如果不需要请求任何 API，token 没必要更新
+        :return:
+        """
+        drive = MyDrive(app_id=doc.get('app_id'),
+                        token=doc.get('token'),
+                        config_obj=Configs(doc.get('config') or {}))
+
+        if update_token:
+            drive.get_token()
+
         return drive
 
     @staticmethod
-    def create_from_drive_id(drive_id):
-        doc = mongodb.drive.find_one({'drive_id': drive_id})
-        drive = MyDrive.create_from_doc(doc)
-        return drive
-
-    @staticmethod
-    def create_from_item_id(item_id):
-        doc = mongodb.item.find_one({'id': item_id})
-        drive_id = doc['parentReference']['driveId']
-        return MyDrive.create_from_drive_id(drive_id)
-
-    @staticmethod
-    def create_from_doc(doc):
-        return MyDrive(doc['app_id'], doc['app_secret'], doc['redirect_url'], token=doc.get('token'),
-                       drive_id=doc.get('drive_id'), root_path=doc.get('root_path'))
+    def create_from_app_id(app_id):
+        doc = mongodb.drive.find_one({'app_id': app_id}) or {}
+        return MyDrive.create(doc)
 
 
 class RefreshTimer:
@@ -134,7 +112,7 @@ class RefreshTimer:
     timers_data = {}
 
     @staticmethod
-    def start_refresh_timer(app_id):
+    def start_a_timer(app_id):
         timer = threading.Timer(Utils.get_seconds(RefreshTimer.refresh_interval),
                                 RefreshTimer.refresh_token, (app_id,))
         timer.start()
@@ -146,10 +124,10 @@ class RefreshTimer:
 
     @staticmethod
     def refresh_token(app_id):
-        if MyDrive.create(app_id).get_token() is None:
+        if MyDrive.create_from_app_id(app_id).token is None:
             RefreshTimer.stop(app_id)
         else:
-            RefreshTimer.start_refresh_timer(app_id)
+            RefreshTimer.start_a_timer(app_id)
 
     @staticmethod
     def start(app_id):
@@ -157,7 +135,7 @@ class RefreshTimer:
         if isinstance(timer, threading.Timer) and timer.is_alive():
             return
 
-        RefreshTimer.start_refresh_timer(app_id)
+        RefreshTimer.start_a_timer(app_id)
         logger.info('app_id({}) start auto refresh token'.format(app_id))
 
     @staticmethod
@@ -176,16 +154,53 @@ class RefreshTimer:
         return RefreshTimer.timers_data
 
 
+def update_config(app_id, config, add_if_not_exist=False):
+    """
+    初始化或更新配置项
+    :param app_id:
+    :param config:
+    :param add_if_not_exist: True: 不存在时新增，一般用于初始化；
+                             False: 存在时才更新，一般用于后面更新配置。
+                             更新时不会新增那些不在默认配置里面的配置项
+    :return:
+    """
+    res = {}
+    for k, v in config.items():
+        res1 = {}
+        for _k, _v in v.items():
+            complete_k = 'config.{}.{}'.format(k, _k)
+
+            query = {
+                'app_id': app_id,
+                complete_k: {'$exists': not add_if_not_exist}
+            }
+
+            modified_count = mongodb.drive.update_one(
+                query, {'$set': {complete_k: _v}}).modified_count
+            if modified_count == 1:
+                # modified_count 等于 1 说明更新了 key 对应的配置
+                res1[_k] = modified_count
+        if res1:
+            res[k] = res1
+    return res
+
+
 def init():
     # 清空 auth_temp
     mongodb.auth_temp.delete_many({})
 
+    default_configs = Configs.create(DEFAULT_CONFIG_PATH).default()
+
     # drive相关
     for drive in MyDrive.drives():
-        logger.info('app_id({}) is authed from cache'.format(drive.app_id))
-        RefreshTimer.start(drive.app_id)
+        # 初始化默认配置
+        update_config(drive.app_id, default_configs, add_if_not_exist=True)
 
-        drive.try_to_update_items()
+        # 更新文件
+        threading.Timer(1, drive.update_items).start()
+
+        # 开启自动刷新token
+        RefreshTimer.start(drive.app_id)
 
 
 init()

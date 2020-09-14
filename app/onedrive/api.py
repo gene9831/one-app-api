@@ -6,8 +6,8 @@ from flask import Blueprint, request, redirect, abort
 from flask_jsonrpc import JSONRPCBlueprint
 from flask_jsonrpc.exceptions import JSONRPCError, InvalidRequestError
 
-from . import mongodb, RefreshTimer, MyDrive
-from ..common import AuthorizationSite, CURDCounter
+from . import mongodb, RefreshTimer, MyDrive, DEFAULT_CONFIG_PATH, update_config
+from ..common import AuthorizationSite, CURDCounter, Configs
 
 logger = logging.getLogger(__name__)
 
@@ -17,19 +17,37 @@ onedrive_route_bp = Blueprint('onedrive_route', __name__)
 
 
 # -------- onedrive blueprint -------- #
-@onedrive_bp.method('Onedrive.getItems')
-def get_items(page: int = 1, limit: int = 20) -> list:
+@onedrive_bp.method('Onedrive.getMovies')
+def get_movies(page: int = 1, limit: int = 20) -> list:
     skip = (page - 1) * limit
     docs = []
+    _or = []
 
-    for drive in MyDrive.drives(verify=False):
-        query = {
-            'parentReference.driveId': drive.drive_id,
-            'parentReference.path': {'$regex': '^' + drive.root_path}
-        }
-        for doc in mongodb.item.find(query).skip(skip).limit(limit):
-            doc.pop('_id', None)
-            docs.append(doc)
+    for drive in MyDrive.drives(update_token=False):
+        item_id = get_item_id_by_path(drive.app_id, drive.config_obj.get_v('movies_path'))
+        _or.append({'parentReference.id': item_id})
+
+    for doc in mongodb.item.find({'$or': _or}).skip(skip).limit(limit):
+        doc.pop('_id', None)
+        docs.append(doc)
+
+    return docs
+
+
+@onedrive_bp.method('Onedrive.getTVSeries')
+def get_tv_series(page: int = 1, limit: int = 20) -> list:
+    skip = (page - 1) * limit
+    docs = []
+    _or = []
+
+    for drive in MyDrive.drives(update_token=False):
+        item_id = get_item_id_by_path(drive.app_id, drive.config_obj.get_v('tv_series_path'))
+        _or.append({'parentReference.id': item_id})
+
+    for doc in mongodb.item.find({'$or': _or}).skip(skip).limit(limit):
+        doc.pop('_id', None)
+        docs.append(doc)
+
     return docs
 
 
@@ -49,19 +67,37 @@ def get_item_content(item_id: str) -> str:
     if 'folder' in doc.keys():
         raise InvalidRequestError(data={'message': 'You cannot get content for a folder'})
 
-    drive_id = doc['parentReference']['driveId']
-    drive = MyDrive.create_from_drive_id(drive_id)
+    drive = MyDrive.create_from_app_id(doc['app_id'])
     return drive.content(item_id)
 
 
 # -------- onedrive_admin blueprint -------- #
 @onedrive_admin_bp.method('Onedrive.getSignInUrl')
-def get_sign_in_url(app_id: str, app_secret: str, redirect_url: str) -> str:
-    doc = mongodb.drive.find_one({'app_id': app_id})
-    if doc and doc.get('token'):
-        raise JSONRPCError(data={'message': 'repeat sign in'})
+def get_sign_in_url(app_id: str, app_secret: str = None, redirect_url: str = None) -> str:
+    """
+    这个方法用于第一次登陆，或者当 token 失效了（token过期、app_secret已修改等原因）进行重新登陆
+    :param app_id:
+    :param app_secret:
+    :param redirect_url:
+    :return:
+    """
+    doc = mongodb.drive.find_one({'app_id': app_id}) or {}
+    config = Configs(doc.get('config') or {})
 
-    drive = MyDrive(app_id, app_secret, redirect_url)
+    # 如果为空就去数据库找
+    app_secret = app_secret or config.get_v('app_secret')
+    redirect_url = redirect_url or config.get_v('redirect_url')
+    token = doc.get('token')
+
+    drive = MyDrive(app_id=app_id,
+                    app_secret=app_secret,
+                    redirect_url=redirect_url,
+                    token=token)
+
+    if drive.get_token(refresh_now=True):
+        # 说明这个 app 仍然有效
+        raise JSONRPCError(data={'message': 'repeat sign in. whatever, this app is still valid'})
+
     sign_in_url, state = drive.get_sign_in_url()
 
     mongodb.auth_temp.insert_one({'state': state,
@@ -86,8 +122,7 @@ def get_item_shared_link(item_id: str) -> str:
     if 'link' in doc.keys():
         return doc['link']
 
-    drive_id = doc['parentReference']['driveId']
-    drive = MyDrive.create_from_drive_id(drive_id)
+    drive = MyDrive.create_from_app_id(doc['app_id'])
     base_down_url = mongodb.drive.find_one({'app_id': drive.app_id}).get('base_down_url')
 
     if base_down_url is None:
@@ -114,7 +149,6 @@ def update_items() -> dict:
 @onedrive_admin_bp.method('Onedrive.deleteItems')
 def delete_items(app_id: str = None) -> dict:
     _set = {
-        'drive_id': None,
         'delta_link': None,
     }
 
@@ -123,15 +157,15 @@ def delete_items(app_id: str = None) -> dict:
         if doc is None:
             raise InvalidRequestError(data={'message': 'Cannot find drive'})
         mongodb.drive.update_one({'app_id': app_id}, {'$set': _set})
-        count = mongodb.item.delete_many({'parentReference.driveId': doc['drive_id']}).deleted_count
+        count = mongodb.item.delete_many({'app_id': app_id}).deleted_count
         counter = CURDCounter(deleted=count)
-        logger.info('app_id({}) delete items: {}'.format(doc['app_id'], counter.detail()))
+        logger.info('app_id({}) delete items: {}'.format(app_id, counter.detail()))
         return counter.json()
 
     delete_count = 0
-    for drive in MyDrive.drives(verify=False):
+    for drive in MyDrive.drives(update_token=False):
         mongodb.drive.update_one({'app_id': drive.app_id}, {'$set': _set})
-        delete_count += mongodb.item.delete_many({'parentReference.driveId': drive.drive_id}).deleted_count
+        delete_count += mongodb.item.delete_many({'app_id': app_id}).deleted_count
 
     counter = CURDCounter(deleted=delete_count)
     logger.info('delete all items: {}'.format(counter.detail()))
@@ -151,22 +185,19 @@ def drop_all() -> bool:
 
 @onedrive_admin_bp.method('Onedrive.getDrives')
 def get_drives() -> list:
-    data = []
-    for doc in mongodb.drive.find():
-        doc.pop('_id', None)
-        doc.pop('app_secret', None)
-        doc.pop('token', None)
-        data.append(doc)
-    return data
+    res = []
+    for drive in MyDrive.drives(update_token=False):
+        res1 = {
+            'app_id': drive.app_id,
+            'config': drive.config_obj.sensitive()
+        }
+        res.append(res1)
+    return res
 
 
 @onedrive_admin_bp.method('Onedrive.setDrive')
 def set_drive(app_id: str, config: dict) -> dict:
-    res = {}
-    for k, v in config.items():
-        res[k] = mongodb.drive.update_one(
-            {'app_id': app_id}, {'$set': {k: v}}).modified_count
-    return res
+    return update_config(app_id, Configs(config).original())
 
 
 @onedrive_admin_bp.method('Onedrive.showTimers')
@@ -181,16 +212,30 @@ def callback():
     doc = mongodb.auth_temp.find_one({'state': state})
     if doc is None:
         return {'message': 'login timeout'}
-    drive = MyDrive(doc['app_id'], doc['app_secret'], doc['redirect_url'])
+
+    drive = MyDrive(**doc)
     token = drive.get_token_from_code(request.url, state)
 
-    if token:
-        logger.info('app_id({}) is authed'.format(drive.app_id))
-        threading.Timer(1, drive.try_to_update_items()).start()
-        RefreshTimer.start(drive.app_id)
-        return {'message': 'login successful'}
+    if not token:
+        # 仅仅是为了展示结果，你可以改成任何你想要的页面
+        return {'message': 'login failed'}
+
+    config_obj = Configs.create(DEFAULT_CONFIG_PATH)
+    config_obj.set_v('app_secret', doc.get('app_secret'))
+    config_obj.set_v('redirect_url', doc.get('redirect_url'))
+
+    new_doc = {
+        'app_id': drive.app_id,
+        'config': config_obj.default(),
+        'token': token
+    }
+    mongodb.drive.update_one({'app_id': drive.app_id}, {'$set': new_doc}, upsert=True)
+
+    logger.info('app_id({}) is authed'.format(drive.app_id))
+    threading.Timer(1, drive.update_items).start()
+    RefreshTimer.start(drive.app_id)
     # 仅仅是为了展示结果，你可以改成任何你想要的页面
-    return {'message': 'login failed'}
+    return {'message': 'login successful'}
 
 
 @onedrive_route_bp.route('/<item_id>/<name>', methods=['GET'])
@@ -199,4 +244,35 @@ def item_content(item_id, name):
         abort(404)
     content_url = get_item_content(item_id)
     return redirect(content_url)
+
+
 # -------- end of blueprint -------- #
+
+
+def get_item_id_by_path(app_id: str, path: str) -> str:
+    """
+    如果父目录重命名，增量更新里面并不会返回子项目的数据，
+    所以 parentReference.path 不能保证是有效的。
+    :param app_id:
+    :param path:
+    :return:
+    """
+    dirs = path.split('/')[1:]
+
+    doc = mongodb.item.find_one({'app_id': app_id,
+                                 'root': {'$exists': True}})
+
+    if doc is None:
+        raise JSONRPCError('Cannot find the root item of app({})'.format(app_id))
+
+    p_id = doc['id']
+    for _dir in dirs:
+        doc = mongodb.item.find_one({'app_id': app_id,
+                                     'parentReference.id': p_id,
+                                     'name': _dir})
+        if doc is None:
+            raise JSONRPCError('Invalid directory ({}) of app({})'.format(_dir, app_id))
+
+        p_id = doc['id']
+
+    return p_id

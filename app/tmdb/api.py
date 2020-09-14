@@ -43,9 +43,9 @@ def get_data_by_item_id(item_id: str) -> dict:
 @tmdb_admin_bp.method('TMDB.getConfig')
 def get_config() -> dict:
     doc = mongodb.tmdb.find_one({'id': TMDB_CONFIG_ID}) or {}
-    return Configs.sensitive(doc)
+    return Configs(doc).sensitive()
 
 
 @tmdb_admin_bp.method('TMDB.setConfig')
 def set_config(config: dict) -> dict:
-    return update_config(config, replace=True)
+    return update_config(Configs(config).original())

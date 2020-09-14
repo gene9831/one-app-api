@@ -296,7 +296,7 @@ X-Password: secret
 
 ### 删除与 OneDrive 相关的数据
 
-> **谨慎操作**
+> :warning:**谨慎操作**
 
 - 方法：`Onedrive.dropAll`
 - 需要管理员：是
