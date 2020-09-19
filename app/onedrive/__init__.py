@@ -107,6 +107,7 @@ class MyDrive(OneDrive):
 
 
 class RefreshTimer:
+    # TODO 重写。不需要12天刷新一次，每天固定时间增量更新即可
     refresh_interval = 12  # days
     timers = {}
     timers_data = {}
@@ -115,11 +116,12 @@ class RefreshTimer:
     def start_a_timer(app_id):
         timer = threading.Timer(Utils.get_seconds(RefreshTimer.refresh_interval),
                                 RefreshTimer.refresh_token, (app_id,))
+        timer.name = 'Timer-RefreshToken'
         timer.start()
         RefreshTimer.timers[app_id] = timer
         RefreshTimer.timers_data[app_id] = {
-            'lastRefreshTime': Utils.datetime_now(),
-            'nextRefreshTime': Utils.datetime_delta(days=RefreshTimer.refresh_interval)
+            'lastRefreshTime': Utils.str_datetime_now(),
+            'nextRefreshTime': Utils.str_datetime_delta(days=RefreshTimer.refresh_interval)
         }
 
     @staticmethod

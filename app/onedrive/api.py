@@ -1,13 +1,19 @@
 # -*- coding: utf-8 -*-
 import logging
+import os
 import threading
+import time
+import uuid
 
+import requests
 from flask import Blueprint, request, redirect, abort
 from flask_jsonrpc import JSONRPCBlueprint
 from flask_jsonrpc.exceptions import JSONRPCError, InvalidRequestError
+from requests_oauthlib import OAuth2Session
 
 from . import mongodb, RefreshTimer, MyDrive, DEFAULT_CONFIG_PATH, update_config
-from ..common import AuthorizationSite, CURDCounter, Configs
+from .models import UploadInfo
+from ..common import AuthorizationSite, CURDCounter, Configs, Utils
 
 logger = logging.getLogger(__name__)
 
@@ -138,6 +144,166 @@ def get_item_shared_link(item_id: str) -> str:
     return _link
 
 
+uploading = {}
+
+
+@onedrive_admin_bp.method('Onedrive.uploadFile')
+def upload_file(app_id: str, upload_path: str, file_path: str) -> dict:
+    """
+
+    :param app_id:
+    :param upload_path: The directory of OneDrive which you want upload file to
+    :param file_path: Local file path
+    :return:
+    """
+    if os.path.isfile(file_path) is False:
+        raise InvalidRequestError(data={'message': 'File({}) not found.'.format(file_path)})
+
+    filename = file_path.strip().split('/')[-1]
+    drive = MyDrive.create_from_app_id(app_id)
+    # TODO 上传路径出错，比如没有此路径，和文件重名
+    res_json = drive.create_upload_session(upload_path, filename)
+    upload_url = res_json['uploadUrl']
+
+    uid = str(uuid.uuid1())
+    upload_info = UploadInfo(uid=uid,
+                             filename=filename,
+                             file_path=file_path,
+                             upload_path=upload_path,
+                             size=os.path.getsize(file_path),
+                             upload_url=upload_url,
+                             created_date_time=Utils.str_datetime_now())
+    mongodb.upload_info.insert_one(upload_info.json())
+
+    t = threading.Thread(None, upload, 'Upload-' + uid, (uid,), daemon=True)
+    uploading[uid] = t
+    t.start()
+
+    logger.info('Start to upload file {}'.format(filename))
+
+    return {}
+
+
+def upload(uid):
+    chunk_size = 32 * 320 * 1024  # 10MB
+
+    try:
+        info = UploadInfo(**mongodb.upload_info.find_one({'uid': uid}))
+
+        res_json = requests.get(info.upload_url).json()
+        if 'nextExpectedRanges' not in res_json.keys():
+            # upload_url失效
+            mongodb.upload_info.update_one({'uid': uid},
+                                           {'$set': {'valid': False}})
+            return
+
+        finished = int(res_json['nextExpectedRanges'][0].split('-')[0])
+        mongodb.upload_info.update_one({'uid': uid},
+                                       {'$set': {
+                                           info.FINISHED: finished,
+                                       }})
+
+        with open(info.file_path, 'rb') as f:
+            f.seek(finished, 0)
+
+            while True:
+                start_time = time.time()
+
+                chunk_start = f.tell()
+                chunk_end = chunk_start + chunk_size - 1
+
+                if chunk_end >= info.size:
+                    # 从文件末尾往前 chunk_size 个字节
+                    chunk_start = f.seek(-chunk_size, 2)
+                    chunk_end = info.size - 1
+
+                headers = {
+                    'Content-Length': str(chunk_size),
+                    'Content-Range': 'bytes {}-{}/{}'.format(chunk_start, chunk_end, info.size)
+                }
+
+                data = f.read(chunk_size)
+                res = None
+                while res is None:
+                    try:
+                        res = requests.put(info.upload_url, headers=headers, data=data)
+                        if res.status_code < 200 or res.status_code >= 300:
+                            logger.error(res.text)
+                            res = None
+                    except requests.exceptions.RequestException as e:
+                        logger.error(e)
+
+                spend_time = time.time() - start_time
+                info.spend_time += spend_time
+                _set = {
+                    info.FINISHED: chunk_end + 1,
+                    info.SPEED: int(chunk_size / spend_time),
+                    info.SPEND_TIME: info.spend_time,
+                }
+
+                res_json = res.json()
+                if 'id' in res_json.keys():
+                    # 上传完成
+                    _set[info.FINISHED_DT] = Utils.str_datetime_now()
+                    mongodb.upload_info.update_one({'uid': uid},
+                                                   {'$set': _set})
+                    logger.info('uploaded: {}'.format(res_json['id']))
+                    break
+
+                mongodb.upload_info.update_one({'uid': uid},
+                                               {'$set': _set})
+
+    except Exception as e:
+        logger.error(e)
+    finally:
+        uploading.pop(uid, None)
+
+
+@onedrive_admin_bp.method('Onedrive.uploadStatus')
+def upload_status(param: str = None) -> list:
+    res = []
+    for doc in mongodb.upload_info.find():
+        info = UploadInfo(**doc)
+        finished = info.finished == info.size
+        running = info.uid in uploading.keys()
+
+        data = info.json()
+        data['running'] = running
+
+        if param == 'running' and not running:
+            continue
+        elif param == 'stopped' and (running or finished):
+            continue
+        elif param == 'finished' and not finished:
+            continue
+
+        data.pop('upload_url', None)
+        res.append(data)
+    return res
+
+
+@onedrive_admin_bp.method('Onedrive.startUpload')
+def start_upload(uid: str) -> int:
+    if uid in uploading.keys():
+        return 2  # 已经在上传
+    doc = mongodb.upload_info.find_one({'uid': uid}) or {}
+    if doc.get('size') == doc.get('finished'):
+        return 0  # 已经上传完成
+    t = threading.Thread(None, upload, 'Upload-' + uid, (uid,), daemon=True)
+    uploading[uid] = t
+    t.start()
+    return 1  # 启动成功
+
+
+@onedrive_admin_bp.method('Onedrive.apiTest')
+def api_test(app_id: str, method: str, url: str,
+             headers: dict = None, data: dict = None) -> dict:
+    drive = MyDrive.create_from_app_id(app_id)
+    graph_client = OAuth2Session(token=drive.token)
+    res = MyDrive.request(graph_client, method, url, data=data, headers=headers)
+    return res.json()
+
+
 @onedrive_admin_bp.method('Onedrive.updateItems')
 def update_items() -> dict:
     counter = CURDCounter()
@@ -203,6 +369,14 @@ def set_drive(app_id: str, config: dict) -> dict:
 @onedrive_admin_bp.method('Onedrive.showTimers')
 def show_timers() -> dict:
     return RefreshTimer.show()
+
+
+@onedrive_admin_bp.method('Onedrive.showThreads')
+def show_threads() -> list:
+    res = []
+    for item in threading.enumerate():
+        res.append(str(item))
+    return res
 
 
 # -------- onedrive_route blueprint -------- #

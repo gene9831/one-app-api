@@ -140,14 +140,30 @@ class Configs:
 
 
 class Utils:
+    DEFAULT_DATETIME_FMT = '%Y-%m-%d %H:%M:%S'
+
+    # TODO 这里有点乱七八糟的
     @staticmethod
-    def datetime_now(strf='%Y-%m-%d %H:%M'):
-        return datetime.datetime.now().strftime(strf)
+    def str_datetime_now(fmt: str = DEFAULT_DATETIME_FMT) -> str:
+        return datetime.datetime.now().strftime(fmt)
 
     @staticmethod
-    def datetime_delta(strf='%Y-%m-%d %H:%M', days=0, hours=0, minutes=0):
+    def str_datetime_delta(fmt: str = DEFAULT_DATETIME_FMT, days=0, hours=0, minutes=0) -> str:
         d = datetime.datetime.now() + datetime.timedelta(days=days, hours=hours, minutes=minutes)
-        return d.strftime(strf)
+        return d.strftime(fmt)
+
+    @staticmethod
+    def datetime_delta_str(dt, fmt: str = DEFAULT_DATETIME_FMT, days=0, hours=0, minutes=0):
+        dt = dt + datetime.timedelta(days=days, hours=hours, minutes=minutes)
+        return dt.strftime(fmt)
+
+    @staticmethod
+    def str_datetime_convert(s: str, fmt: str, fmt_to: str = DEFAULT_DATETIME_FMT):
+        return datetime.datetime.strptime(s, fmt).strftime(fmt_to)
+
+    @staticmethod
+    def str_to_datetime(s: str, fmt: str = DEFAULT_DATETIME_FMT):
+        return datetime.datetime.strptime(s, fmt)
 
     @staticmethod
     def get_seconds(day):

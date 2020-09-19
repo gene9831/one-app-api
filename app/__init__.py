@@ -14,9 +14,18 @@ mongo = PyMongo()
 jsonrpc = JSONRPC(None, '/api')
 
 
+def after_request(response):
+    # 允许跨域请求
+    response.headers['Access-Control-Allow-Origin'] = '*'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
+    response.headers['Access-Control-Max-Age'] = 3600
+    return response
+
+
 def create_app(config_obj):
     app = Flask(__name__)
 
+    app.after_request(after_request)
     # 加载配置文件
     app.config.from_object(config_obj)
     # print(app.config)

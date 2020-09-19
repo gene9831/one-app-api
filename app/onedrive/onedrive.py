@@ -16,7 +16,7 @@ os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
 os.environ['OAUTHLIB_RELAX_TOKEN_SCOPE'] = '1'
 os.environ['OAUTHLIB_IGNORE_SCOPE_CHANGE'] = '1'
 
-scopes = 'offline_access files.readWrite.all'
+scopes = 'offline_access User.Read files.readWrite.all'
 authority = 'https://login.microsoftonline.com/common'
 authorize_endpoint = '/oauth2/v2.0/authorize'
 token_endpoint = '/oauth2/v2.0/token'
@@ -108,6 +108,10 @@ class OneDrive:
         return token
 
     def do_when_token_updated(self):
+        """
+        重写这个方法来读写数据库
+        :return:
+        """
         pass
 
     def delta(self, url=None):
@@ -145,6 +149,19 @@ class OneDrive:
         res = self.request(graph_client, 'GET', '{}/{}/content'.format(item_url, item_id), allow_redirects=False)
         location = res.headers.get('Location')
         return location
+
+    def create_upload_session(self, path, filename):
+        graph_client = OAuth2Session(token=self.token)
+        headers = {'Content-Type': 'application/json'}
+
+        data = {
+            '@microsoft.graph.conflictBehavior': 'rename',
+            'name': filename
+        }
+        res = self.request(graph_client, 'POST',
+                           '{}/root:{}/{}:/createUploadSession'.format(drive_url, path, filename),
+                           headers=headers, json=data)
+        return res.json()
 
     @staticmethod
     def request(graph_client: OAuth2Session,
