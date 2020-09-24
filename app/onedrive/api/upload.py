@@ -27,11 +27,19 @@ def upload_file(drive_id: str, upload_path: str, file_path: str) -> int:
     :param file_path: 本地文件路径
     :return:
     """
+    upload_path = upload_path.replace('\\', '/')
+    file_path = file_path.replace('\\', '/')
+
+    if upload_path.endswith('/'):
+        upload_path = upload_path[:-1]
+    if file_path.endswith('/'):
+        file_path = file_path[:-1]
+
     if os.path.isfile(file_path) is False:
         raise InvalidRequestError(
             data={'message': 'File({}) not found.'.format(file_path)})
 
-    filename = file_path.strip().split('/')[-1]
+    _, filename = os.path.split(file_path)
     uid = str(uuid.uuid1())
     upload_info = UploadInfo(uid=uid,
                              drive_id=drive_id,
@@ -44,6 +52,47 @@ def upload_file(drive_id: str, upload_path: str, file_path: str) -> int:
 
     UploadThread(uid).start()
 
+    return 0
+
+
+@onedrive_admin_bp.method('Onedrive.uploadFolder')
+def upload_folder(drive_id: str, upload_path: str, folder_path: str) -> int:
+    """
+    上传文件夹下的文件，不上传嵌套的文件夹
+    :param drive_id:
+    :param upload_path:
+    :param folder_path:
+    :return:
+    """
+    upload_path = upload_path.replace('\\', '/')
+    folder_path = folder_path.replace('\\', '/')
+
+    if upload_path.endswith('/'):
+        upload_path = upload_path[:-1]
+    if folder_path.endswith('/'):
+        folder_path = folder_path[:-1]
+
+    if os.path.isdir(folder_path) is False:
+        raise InvalidRequestError(
+            data={'message': 'Folder({}) not found.'.format(folder_path)})
+
+    _, folder_name = os.path.split(folder_path)
+    for file in os.listdir(folder_path):
+        file_path = folder_path + '/' + file
+        if os.path.isfile(file_path) is False:
+            continue
+
+        uid = str(uuid.uuid1())
+        upload_info = UploadInfo(uid=uid,
+                                 drive_id=drive_id,
+                                 filename=file,
+                                 file_path=file_path,
+                                 upload_path=upload_path + '/' + folder_name,
+                                 size=os.path.getsize(file_path),
+                                 created_date_time=Utils.str_datetime_now())
+        mongodb.upload_info.insert_one(upload_info.json())
+
+        UploadThread(uid).start()
     return 0
 
 
@@ -166,9 +215,8 @@ class UploadThread(threading.Thread):
                 return
 
             info.finished = int(res_json['nextExpectedRanges'][0].split('-')[0])
-            _set = info.commit()
             mongodb.upload_info.update_one({'uid': self.uid},
-                                           {'$set': _set})
+                                           {'$set': info.commit()})
 
             with open(info.file_path, 'rb') as f:
                 f.seek(info.finished, 0)
@@ -198,8 +246,13 @@ class UploadThread(threading.Thread):
                             res = requests.put(info.upload_url, headers=headers,
                                                data=data)
                             if res.status_code < 200 or res.status_code >= 300:
-                                logger.error(res.text)
-                                res = None
+                                # Item not found
+                                info.valid = False
+                                info.error = res.text
+                                mongodb.upload_info.update_one(
+                                    {'uid': self.uid},
+                                    {'$set': info.commit()})
+                                return
                         except requests.exceptions.RequestException as e:
                             logger.error(e)
 
@@ -212,19 +265,21 @@ class UploadThread(threading.Thread):
                     if 'id' in res_json.keys():
                         # 上传完成
                         info.finished_date_time = Utils.str_datetime_now()
-                        _set = info.commit()
                         mongodb.upload_info.update_one({'uid': self.uid},
-                                                       {'$set': _set})
+                                                       {'$set': info.commit()})
                         logger.info('uploaded: {}'.format(res_json['id']))
                         break
 
                     if 'nextExpectedRanges' not in res_json.keys():
                         # 上传范围错误
-                        raise Exception('Wrong range')
+                        info.valid = False
+                        info.error = res.text
+                        mongodb.upload_info.update_one({'uid': self.uid},
+                                                       {'$set': info.commit()})
+                        raise Exception(res.text)
 
-                    _set = info.commit()
                     mongodb.upload_info.update_one({'uid': self.uid},
-                                                   {'$set': _set})
+                                                   {'$set': info.commit()})
         except Exception as e:
             logger.error(e)
         finally:
