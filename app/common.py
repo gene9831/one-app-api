@@ -1,8 +1,6 @@
 # -*- coding: utf-8 -*-
 import datetime
-import os
 
-import yaml
 from flask import request
 from flask_jsonrpc.exceptions import JSONRPCError
 from flask_jsonrpc.site import JSONRPCSite
@@ -16,7 +14,9 @@ class CURDCounter:
 
     def detail(self):
         if self.count() > 0:
-            return '{0} added, {1} updated, {2} deleted'.format(self.added, self.updated, self.deleted)
+            return '{0} added, {1} updated, {2} deleted'.format(self.added,
+                                                                self.updated,
+                                                                self.deleted)
         return 'nothing changed'
 
     def merge(self, counter):
@@ -34,109 +34,13 @@ class CURDCounter:
 class AuthorizationSite(JSONRPCSite):
     @staticmethod
     def check_auth() -> bool:
-        username = request.headers.get('X-Username')
         password = request.headers.get('X-Password')
-        return username == 'username' and password == 'secret'
+        return password == 'secret'
 
     def dispatch(self, req_json):
         if not self.check_auth():
             raise JSONRPCError(message='Unauthorized')
         return super(AuthorizationSite, self).dispatch(req_json)
-
-
-class ConfigItem:
-    def __init__(self, **kwargs):
-        original = kwargs.get('original') or False
-        self.value = kwargs.get('value')
-        if original is False or kwargs.get('type') is not None:
-            self.type = kwargs.get('type') or 'str'
-        if original is False or kwargs.get('field') is not None:
-            self.field = kwargs.get('field') or ''
-        if original is False or kwargs.get('comment') is not None:
-            self.comment = kwargs.get('comment') or ''
-        if original is False or kwargs.get('secret') is not None:
-            self.secret = kwargs.get('secret') or False  # 默认值 False
-
-    def __repr__(self):
-        return str(self.__dict__)
-
-    def json(self):
-        return self.__dict__.copy()
-
-    def sensitive(self):
-        res = self.json()
-        if self.secret:
-            res['value'] = '********'
-        return res
-
-
-class Configs:
-    Detail = 'detail'
-    Clarify = 'clarify'
-    Sensitive = 'sensitive'
-    Original = 'original'
-
-    def __init__(self, config: dict):
-        self._original = self.gen(config, _type=self.Original)
-
-    def original(self):
-        return self._original
-
-    def default(self):
-        """
-        全部字段齐全，一般用于初始化
-        :return:
-        """
-        return self.gen(self._original, _type=self.Detail)
-
-    def sensitive(self):
-        """
-        如果 secret 为 True，value 会变成 ********
-        :return:
-        """
-        return self.gen(self._original, _type=self.Sensitive)
-
-    def get_v(self, key):
-        if key in self._original.keys():
-            return self._original[key].get('value')
-        return None
-
-    def set_v(self, key, value):
-        if key in self._original.keys():
-            self._original[key]['value'] = value
-
-    def get_field(self, field):
-        res = {}
-        for k, v in self._original.items():
-            if v.get('field') == field:
-                res[k] = v.get('value')
-        return res
-
-    @staticmethod
-    def gen(_dict: dict, _type=Detail):
-        if not (_type == Configs.Detail or _type == Configs.Clarify or
-                _type == Configs.Sensitive or _type == Configs.Original):
-            return {}
-
-        configs = {}
-
-        for k, v in _dict.items():
-            if not isinstance(v, dict):
-                continue
-            if _type == Configs.Detail:
-                configs[k] = ConfigItem(**v).json()
-            elif _type == Configs.Sensitive:
-                configs[k] = ConfigItem(**v).sensitive()
-            elif _type == Configs.Original:
-                configs[k] = ConfigItem(**v, original=True).json()
-        return configs
-
-    @staticmethod
-    def create(path):
-        config = {}
-        with open(os.path.join(path), encoding='utf8') as f:
-            config.update(yaml.load(f, Loader=yaml.FullLoader))
-        return Configs(config)
 
 
 class Utils:
@@ -148,17 +52,21 @@ class Utils:
         return datetime.datetime.now().strftime(fmt)
 
     @staticmethod
-    def str_datetime_delta(fmt: str = DEFAULT_DATETIME_FMT, days=0, hours=0, minutes=0) -> str:
-        d = datetime.datetime.now() + datetime.timedelta(days=days, hours=hours, minutes=minutes)
+    def str_datetime_delta(fmt: str = DEFAULT_DATETIME_FMT, days=0, hours=0,
+                           minutes=0) -> str:
+        d = datetime.datetime.now() + datetime.timedelta(days=days, hours=hours,
+                                                         minutes=minutes)
         return d.strftime(fmt)
 
     @staticmethod
-    def datetime_delta_str(dt, fmt: str = DEFAULT_DATETIME_FMT, days=0, hours=0, minutes=0):
+    def datetime_delta_str(dt, fmt: str = DEFAULT_DATETIME_FMT, days=0, hours=0,
+                           minutes=0):
         dt = dt + datetime.timedelta(days=days, hours=hours, minutes=minutes)
         return dt.strftime(fmt)
 
     @staticmethod
-    def str_datetime_convert(s: str, fmt: str, fmt_to: str = DEFAULT_DATETIME_FMT):
+    def str_datetime_convert(s: str, fmt: str,
+                             fmt_to: str = DEFAULT_DATETIME_FMT):
         return datetime.datetime.strptime(s, fmt).strftime(fmt_to)
 
     @staticmethod

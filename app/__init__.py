@@ -17,7 +17,7 @@ jsonrpc = JSONRPC(None, '/api')
 def after_request(response):
     # 允许跨域请求
     response.headers['Access-Control-Allow-Origin'] = '*'
-    response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type,X-Password'
     response.headers['Access-Control-Max-Age'] = 3600
     return response
 
@@ -35,14 +35,15 @@ def create_app(config_obj):
 
     jsonrpc.init_app(app)
 
-    from app.onedrive.api import onedrive_bp, onedrive_admin_bp, onedrive_route_bp
+    from app.onedrive.api import onedrive_bp, onedrive_admin_bp, \
+        onedrive_route_bp
     jsonrpc.register_blueprint(app, onedrive_bp, url_prefix='/od')
     jsonrpc.register_blueprint(app, onedrive_admin_bp, url_prefix='/admin/od')
 
     app.register_blueprint(onedrive_route_bp, url_prefix='/')
 
-    from app.tmdb.api import tmdb_bp, tmdb_admin_bp
-    jsonrpc.register_blueprint(app, tmdb_bp, url_prefix='/tmdb')
-    jsonrpc.register_blueprint(app, tmdb_admin_bp, url_prefix='/admin/tmdb')
+    # from app.tmdb.api import tmdb_bp, tmdb_admin_bp
+    # jsonrpc.register_blueprint(app, tmdb_bp, url_prefix='/tmdb')
+    # jsonrpc.register_blueprint(app, tmdb_admin_bp, url_prefix='/admin/tmdb')
 
     return app

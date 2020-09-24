@@ -1,9 +1,6 @@
-app_secret:
-  comment: '应用程序secret'
-  secret: true
-
-redirect_url:
-  comment: '重定向URL'
+root_path:
+  comment: '网盘根目录'
+  value: '/drive/root:'
 
 movies_path:
   comment: '电影目录'

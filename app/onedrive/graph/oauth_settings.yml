@@ -1,0 +1,7 @@
+app_id: "5a17561e-9ff1-4ee2-8cd9-5ec11fa2e375"
+app_secret: "4ZDR0lpMH033~-V0Nk._.xzB7JzdR.tCIL"
+redirect: "http://localhost:5000/callback"
+scopes: "offline_access user.read files.readWrite.all"
+authority: "https://login.microsoftonline.com/common"
+authorize_endpoint: "/oauth2/v2.0/authorize"
+token_endpoint: "/oauth2/v2.0/token"
