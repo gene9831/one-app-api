@@ -123,24 +123,36 @@ def upload_status(drive_id: str = None, param: str = None) -> list:
 
 
 @onedrive_admin_bp.method('Onedrive.startUpload')
-def start_upload(uid: str) -> int:
-    if uid in uploading.keys():
-        return 1  # 已经在上传
-    doc = mongodb.upload_info.find_one({'uid': uid})
-    if doc is None:
-        return -1  # 没有这个上传信息
-    if doc.get('size') == doc.get('finished'):
-        return 2  # 已经上传完成
-    UploadThread(uid).start()
+def start_upload(uid: str = None, uids: list = None) -> int:
+    uids = uids or []
+    if uid:
+        uids.append(uid)
+
+    for uid in uids:
+        if uid in uploading.keys():
+            continue  # 已经在上传
+        doc = mongodb.upload_info.find_one({'uid': uid})
+        if doc is None:
+            continue  # 没有这个上传信息
+        if doc.get('size') == doc.get('finished'):
+            continue  # 已经上传完成
+        UploadThread(uid).start()
+
     return 0  # 启动成功
 
 
 @onedrive_admin_bp.method('Onedrive.stopUpload')
-def stop_upload(uid: str) -> int:
-    thread = uploading.get(uid)
-    if thread is None:
-        return -1
-    thread.stop()
+def stop_upload(uid: str = None, uids: list = None) -> int:
+    uids = uids or []
+    if uid:
+        uids.append(uid)
+
+    for uid in uids:
+        thread = uploading.get(uid)
+        if thread is None:
+            continue
+        thread.stop()
+
     return 0
 
 
