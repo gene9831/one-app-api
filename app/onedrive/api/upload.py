@@ -253,18 +253,23 @@ class UploadThread(threading.Thread):
 
                     data = f.read(chunk_size)
                     res = None
+                    try_times = 5
                     while res is None:
                         try:
                             res = requests.put(info.upload_url, headers=headers,
                                                data=data)
                             if res.status_code < 200 or res.status_code >= 300:
-                                # Item not found
-                                info.valid = False
-                                info.error = res.text
-                                mongodb.upload_info.update_one(
-                                    {'uid': self.uid},
-                                    {'$set': info.commit()})
-                                return
+                                if try_times > 0:
+                                    # 这里可能是OneDrive服务器出错，可以尝试稍后重试
+                                    try_times -= 1
+                                    time.sleep((5 - try_times) * 10)
+                                else:
+                                    info.valid = False
+                                    info.error = res.text
+                                    mongodb.upload_info.update_one(
+                                        {'uid': self.uid},
+                                        {'$set': info.commit()})
+                                    return
                         except requests.exceptions.RequestException as e:
                             logger.error(e)
 
