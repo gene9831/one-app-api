@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import logging
+import os
 import threading
 
 from app.common import CURDCounter
@@ -99,3 +100,19 @@ def api_test(drive_id: str, method: str, url: str,
     drive = MDrive.create(drive_id)
     res = drive.request(method, url, data=data, headers=headers)
     return res.json()
+
+
+@onedrive_admin_bp.method('Onedrive.listSysPath')
+def list_sys_path(path, only_dir: bool = False) -> list:
+    if not os.path.isdir(path):
+        return []
+
+    res = []
+    for f_or_l in sorted(os.listdir(path), key=lambda x: x.lower()):
+        if os.path.isdir(os.path.join(path, f_or_l)):
+            res.append({'value': f_or_l, 'type': 'dir'})
+        if not only_dir:
+            if os.path.isfile(os.path.join(path, f_or_l)):
+                res.append({'value': f_or_l, 'type': 'file'})
+
+    return res
