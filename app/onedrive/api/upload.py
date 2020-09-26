@@ -178,7 +178,7 @@ class UploadThread(threading.Thread):
                         info.finished_date_time = Utils.str_datetime_now()
                         info.status = 'finished'
                         info.commit()
-                        logger.info('uploaded: {}'.format(res_json['id']))
+                        logger.info('uploaded: {}'.format(info.filename))
                         return
 
                     info.commit()

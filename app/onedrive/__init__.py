@@ -69,45 +69,53 @@ class MDrive(Auth, Drive):
         return res_json['id']
 
     def update_items(self):
-        cache = mongodb.drive_cache.find_one({'id': self.id}) or {}
-        delta_link = cache.get('delta_link')
+        # 每个文件上传成功后或者删除后会调用，这里加锁
+        lock = threading.Lock()
+        lock.acquire()
 
         counter = CURDCounter()
+        try:
+            cache = mongodb.drive_cache.find_one({'id': self.id}) or {}
+            delta_link = cache.get('delta_link')
 
-        for data in self.delta(delta_link):
-            # if 'error' in data.keys():
-            #     raise Exception('{}. {}'.format(data['error'].get('code'),
-            #                                     data['error'].get('message')))
+            for data in self.delta(delta_link):
+                # if 'error' in data.keys():
+                #     raise Exception('{}. {}'.format(data['error'].get('code'),
+                #                                     data['error'].get('message')))
 
-            if '@odata.deltaLink' in data.keys():
-                delta_link = data['@odata.deltaLink']
+                if '@odata.deltaLink' in data.keys():
+                    delta_link = data['@odata.deltaLink']
 
-            items = data['value']
-            for item in items:
-                if item['@odata.type'] != '#microsoft.graph.driveItem':
-                    continue
+                items = data['value']
+                for item in items:
+                    if item['@odata.type'] != '#microsoft.graph.driveItem':
+                        continue
 
-                if 'deleted' in item.keys() and item['deleted'].get(
-                        'state') == 'deleted':
-                    # 删
-                    counter.deleted += mongodb.item.delete_one(
-                        {'id': item['id']}).deleted_count
-                else:
-                    # 增、改
-                    res = mongodb.item.update_one({'id': item['id']},
-                                                  {'$set': item}, upsert=True)
-                    if res.matched_count > 0:
-                        if res.modified_count > 0:
-                            counter.updated += 1
+                    if 'deleted' in item.keys() and item['deleted'].get(
+                            'state') == 'deleted':
+                        # 删
+                        counter.deleted += mongodb.item.delete_one(
+                            {'id': item['id']}).deleted_count
                     else:
-                        counter.added += 1
+                        # 增、改
+                        res = mongodb.item.update_one({'id': item['id']},
+                                                      {'$set': item},
+                                                      upsert=True)
+                        if res.matched_count > 0:
+                            if res.modified_count > 0:
+                                counter.updated += 1
+                        else:
+                            counter.added += 1
 
-        mongodb.drive_cache.update_one({'id': self.id},
-                                       {'$set': {'delta_link': delta_link}})
+            mongodb.drive_cache.update_one({'id': self.id},
+                                           {'$set': {'delta_link': delta_link}})
 
-        logger.info(
-            'drive({}) update items: {}'.format(self.id[:16], counter.detail()))
-        return counter
+            logger.info(
+                'drive({}) update items: {}'.format(self.id[:16],
+                                                    counter.detail()))
+        finally:
+            lock.release()
+            return counter
 
     def auto_update_items(self):
         """
