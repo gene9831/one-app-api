@@ -162,7 +162,7 @@ class UploadThread(threading.Thread):
                                 # 文件未找到，因为其他原因被删除
                                 raise Exception(res.text)
                             if self.deleted:
-                                requests.delete(info.upload_url)
+                                # requests.delete(info.upload_url)
                                 return
                         except requests.exceptions.RequestException as e:
                             logger.error(e)
@@ -322,7 +322,7 @@ def upload_folder(drive_id: str, upload_path: str, folder_path: str) -> int:
             data={'message': 'Folder({}) not found.'.format(folder_path)})
 
     _, folder_name = os.path.split(folder_path)
-    for file in os.listdir(folder_path):
+    for file in sorted(os.listdir(folder_path), key=lambda x: x.lower()):
         file_path = folder_path + '/' + file
         if os.path.isfile(file_path) is False:
             continue
@@ -403,8 +403,25 @@ def delete_upload(uid: str = None, uids: list = None) -> int:
     if uid:
         uids.append(uid)
 
+    to_be_deleted = []
+
     for uid in uids:
-        mongodb.upload_info.delete_one({'uid': uid})
         upload_pool.del_task(uid)
 
+        doc = mongodb.upload_info.find_one({'uid': uid})
+        if doc:
+            to_be_deleted.append(uid.get('upload_url'))
+            mongodb.upload_info.delete_one({'uid': uid})
+
+    threading.Thread(name='DeleteUrls', target=delete_urls,
+                     args=(to_be_deleted,)).start()
+
     return 0
+
+
+def delete_urls(urls):
+    for url in urls:
+        try:
+            requests.delete(url)
+        except requests.exceptions.RequestException:
+            pass
