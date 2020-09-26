@@ -27,6 +27,28 @@ def get_items_by_path(drive_id: str, path: str, page: int = 1,
     return docs
 
 
+@onedrive_admin_bp.method('Onedrive.listDrivePath')
+def list_drive_path(drive_id: str, path: str) -> list:
+    path = path.strip().replace('\\', '/')
+    if path.endswith('/'):
+        path = path[:-1]
+
+    query = {
+        'parentReference.driveId': drive_id,
+        'parentReference.path': '/drive/root:' + path
+    }
+
+    res = []
+    for item in mongodb.item.find(query):
+        d = {
+            'value': item.get('name') or 'null',
+            'type': 'file' if 'file' in item.keys() else 'dir'
+        }
+        res.append(d)
+
+    return sorted(res, key=lambda x: x['value'].lower())
+
+
 @onedrive_bp.method('Onedrive.getMovies')
 def get_movies(page: int = 1, limit: int = 20) -> list:
     skip = (page - 1) * limit

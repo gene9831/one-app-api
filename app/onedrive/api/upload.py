@@ -109,7 +109,7 @@ class UploadThread(threading.Thread):
                 # 创建上传会话
                 drive = MDrive.create(info.drive_id)
                 res_json = drive.create_upload_session(
-                    info.upload_path + '/' + info.filename)
+                    info.upload_path + info.filename)
                 upload_url = res_json.get('uploadUrl')
                 if upload_url:
                     info.upload_url = upload_url
@@ -264,17 +264,15 @@ def upload_file(drive_id: str, upload_path: str, file_path: str) -> int:
     """
 
     :param drive_id:
-    :param upload_path: 上传至此目录下
+    :param upload_path: 上传至此目录下，结尾带‘/’
     :param file_path: 本地文件路径
     :return:
     """
-    upload_path = upload_path.replace('\\', '/')
-    file_path = file_path.replace('\\', '/')
+    upload_path = upload_path.strip().replace('\\', '/')
+    file_path = file_path.strip().replace('\\', '/')
 
-    if upload_path.endswith('/'):
-        upload_path = upload_path[:-1]
-    if file_path.endswith('/'):
-        file_path = file_path[:-1]
+    if not upload_path.endswith('/'):
+        upload_path = upload_path + '/'
 
     if os.path.isfile(file_path) is False:
         raise InvalidRequestError(
@@ -305,25 +303,25 @@ def upload_folder(drive_id: str, upload_path: str, folder_path: str) -> int:
     """
     上传文件夹下的文件，不上传嵌套的文件夹
     :param drive_id:
-    :param upload_path:
-    :param folder_path:
+    :param upload_path: 上传至此目录下，结尾带‘/’
+    :param folder_path: 上传此目录下的文件，结尾带'/'
     :return:
     """
-    upload_path = upload_path.replace('\\', '/')
-    folder_path = folder_path.replace('\\', '/')
+    upload_path = upload_path.strip().replace('\\', '/')
+    folder_path = folder_path.strip().replace('\\', '/')
 
-    if upload_path.endswith('/'):
-        upload_path = upload_path[:-1]
-    if folder_path.endswith('/'):
-        folder_path = folder_path[:-1]
+    if not upload_path.endswith('/'):
+        upload_path = upload_path + '/'
+    if not folder_path.endswith('/'):
+        folder_path = folder_path + '/'
 
     if os.path.isdir(folder_path) is False:
         raise InvalidRequestError(
             data={'message': 'Folder({}) not found.'.format(folder_path)})
 
-    _, folder_name = os.path.split(folder_path)
+    _, folder_name = os.path.split(folder_path[:-1])
     for file in sorted(os.listdir(folder_path), key=lambda x: x.lower()):
-        file_path = folder_path + '/' + file
+        file_path = folder_path + file
         if os.path.isfile(file_path) is False:
             continue
 
@@ -336,7 +334,7 @@ def upload_folder(drive_id: str, upload_path: str, folder_path: str) -> int:
                                  drive_id=drive_id,
                                  filename=file,
                                  file_path=file_path,
-                                 upload_path=upload_path + '/' + folder_name,
+                                 upload_path=upload_path + folder_name + '/',
                                  size=file_size,
                                  created_date_time=Utils.str_datetime_now())
         mongodb.upload_info.insert_one(upload_info.json())
@@ -410,7 +408,7 @@ def delete_upload(uid: str = None, uids: list = None) -> int:
 
         doc = mongodb.upload_info.find_one({'uid': uid})
         if doc:
-            to_be_deleted.append(uid.get('upload_url'))
+            to_be_deleted.append(doc.get('upload_url'))
             mongodb.upload_info.delete_one({'uid': uid})
 
     threading.Thread(name='DeleteUrls', target=delete_urls,
