@@ -9,3 +9,7 @@ movies_path:
 tv_series_path:
   comment: '剧集目录'
   value: '/OneMovie/TV-Series'
+
+upload_chunk_size:
+  comment: '上传分片大小(MB)'
+  value: 5

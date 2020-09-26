@@ -120,7 +120,8 @@ class MDrive(Auth, Drive):
         mid_night = datetime.datetime(now.year, now.month, now.day, 23, 59, 59)
         timedelta = mid_night - now
 
-        timer = threading.Timer(timedelta.seconds, self.auto_update_items)
+        # 加10s防抖
+        timer = threading.Timer(timedelta.seconds + 10, self.auto_update_items)
         timer.name = 'UpdateItems({})'.format(self.id[:16])
         timer.daemon = True
         timer.start()
