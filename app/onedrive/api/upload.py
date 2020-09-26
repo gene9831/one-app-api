@@ -91,7 +91,6 @@ class UploadThread(threading.Thread):
 
     def delete(self):
         self.deleted = True
-        mongodb.upload_info.delete_one({'uid': self.uid})
 
     def pop_from_pool(self):
         self.thread_pool.pop(self.uid)
@@ -405,6 +404,7 @@ def delete_upload(uid: str = None, uids: list = None) -> int:
         uids.append(uid)
 
     for uid in uids:
+        mongodb.upload_info.delete_one({'uid': uid})
         upload_pool.del_task(uid)
 
     return 0
