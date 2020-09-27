@@ -142,7 +142,10 @@ def get_item_shared_link(item_id: str) -> str:
 
     res_json['direct_link'] = direct_link
     mongodb.item_cache.update_one({'id': item_id},
-                                  {'$set': {'create_link': res_json}},
+                                  {'$set': {
+                                      'drive_id': drive.id,
+                                      'create_link': res_json
+                                  }},
                                   upsert=True)
 
     return direct_link

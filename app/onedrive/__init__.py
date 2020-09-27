@@ -130,7 +130,7 @@ class MDrive(Auth, Drive):
 
         # 加10s防抖
         timer = threading.Timer(timedelta.seconds + 10, self.auto_update_items)
-        timer.name = 'UpdateItems({})'.format(self.id[:16])
+        timer.name = 'AutoUpdateItems({})'.format(self.id[:16])
         timer.daemon = True
         timer.start()
 

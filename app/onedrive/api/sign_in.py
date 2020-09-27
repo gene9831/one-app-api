@@ -25,12 +25,14 @@ def get_sign_in_url() -> str:
     return sign_in_url
 
 
-@onedrive_route_bp.route('/callback', methods=['GET'])
+# @onedrive_route_bp.route('/callback', methods=['GET'])
 def callback():
     state = request.args['state']
     doc = mongodb.auth_temp.find_one({'state': state})
     if doc is None:
         return {'message': 'login timeout'}
+
+    mongodb.auth_temp.delete_one({'state': state})
 
     drive = MDrive()
     # token更新后会自动写入数据库，这句话直接一步到位
@@ -46,3 +48,46 @@ def callback():
 
     # 仅仅是为了展示结果，你可以改成任何你想要的页面
     return {'message': 'login successful'}
+
+
+@onedrive_admin_bp.method('Onedrive.putCallbackUrl')
+def put_callback_url(url: str) -> dict:
+    from urllib import parse
+    params = parse.parse_qs(parse.urlparse(url).query)
+    states = params.get('state')
+    if states is None:
+        # url错误
+        return {'code': 1, 'message': 'URL错误'}
+    state = states[0]
+
+    doc = mongodb.auth_temp.find_one({'state': state})
+    if doc is None:
+        # 登录超时
+        return {'code': 2, 'message': '登录超时'}
+
+    mongodb.auth_temp.delete_one({'state': state})
+
+    drive = MDrive()
+    token = drive.get_token_from_code(url, state)
+    if token is None:
+        # 未知错误
+        return {'code': -1, 'message': '未知错误'}
+
+    if drive.had_been_cached:
+        # 重复登录
+        return {'code': 3, 'message': '重复登录'}
+
+    drive.auto_update_items()
+    logger.info('drive({}) authed'.format(drive.id[:16]))
+
+    return {'code': 0, 'message': '登录成功'}
+
+
+@onedrive_admin_bp.method('Onedrive.signOut')
+def sign_out(drive_id: str) -> int:
+    mongodb.drive.delete_one({'id': drive_id})
+    mongodb.drive_cache.delete_one({'id': drive_id})
+    mongodb.item.delete_many({'parentReference.driveId': drive_id})
+    mongodb.item_cache.delete_many({'drive_id': drive_id})
+
+    return 0
