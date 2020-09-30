@@ -140,6 +140,7 @@ class MConfigs(Configs):
                                          {'$set': self.default()}, upsert=True)
 
     def update_c(self, configs: Configs, insert=False):
+        # TODO Configs对象会补充不存在的字段，补充的字段的默认值会覆盖数据库的值，应该传入一个dict对象而不是Configs对象
         super(MConfigs, self).update_c(configs, insert=insert)
         return mongodb.config.update_one({'id': self.id},
                                          {'$set': self.default()})

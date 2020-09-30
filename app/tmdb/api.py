@@ -1,36 +1,31 @@
 # -*- coding: utf-8 -*-
-from flask_jsonrpc import JSONRPCBlueprint
 from flask_jsonrpc.exceptions import InvalidRequestError
 
-from . import mongodb, TMDB_CONFIG_ID, MyTMDb, update_config
-from ..common import AuthorizationSite, Configs
-
-tmdb_bp = JSONRPCBlueprint('tmdb', __name__)
-tmdb_admin_bp = JSONRPCBlueprint('tmdb_admin', __name__, jsonrpc_site=AuthorizationSite)
+from app import blueprint_admin
+from . import mongodb, MyTMDb
+from ..config_helper import MConfigs
 
 
-# -------- tmdb blueprint -------- #
-@tmdb_bp.method('TMDB.getDataByItemId')
+@blueprint_admin.method('TMDb.getDataByItemId')
 def get_data_by_item_id(item_id: str) -> dict:
-    query = {
-        'id': item_id,
-        'file.mimeType': {'$regex': '^video'}
-    }
-    doc = mongodb.item.find_one(query)
-
-    if doc is None:
-        raise InvalidRequestError(data={'message': 'You cannot get data for a non-video'})
-
-    tmdb_id = doc.get('tmdb_id')
+    cache = mongodb.item_cache.find_one({'id': item_id}) or {}
+    tmdb_id = cache.get('tmdb_id')
 
     if tmdb_id is None:
+        # 没有对应的tmdb id
+        doc = mongodb.item.find_one({'id': item_id,
+                                     'file.mimeType': {'$regex': '^video'}})
+        if doc is None:
+            raise InvalidRequestError(
+                data={'message': 'You cannot get data for a non-video'})
         tmdb_id = MyTMDb().search_movie_id(doc['name'])
-
-    mongodb.item.update_one({'id': item_id}, {'$set': {'tmdb_id': tmdb_id}})
+        mongodb.item_cache.update_one({'id': item_id},
+                                      {'$set': {'tmdb_id': tmdb_id}},
+                                      upsert=True)
 
     doc = mongodb.tmdb.find_one({'id': tmdb_id})
-    # tmdb文档存在时
     if doc:
+        # tmdb文档存在时
         doc.pop('_id', None)
         return doc
 
@@ -39,13 +34,12 @@ def get_data_by_item_id(item_id: str) -> dict:
     return res_json
 
 
-# -------- tmdb_admin blueprint -------- #
-@tmdb_admin_bp.method('TMDB.getConfig')
+@blueprint_admin.method('TMDb.getConfig')
 def get_config() -> dict:
-    doc = mongodb.tmdb.find_one({'id': TMDB_CONFIG_ID}) or {}
-    return Configs(doc).sensitive()
+    return MConfigs(id=MConfigs.TMDb).sensitive()
 
 
-@tmdb_admin_bp.method('TMDB.setConfig')
-def set_config(config: dict) -> dict:
-    return update_config(Configs(config).original())
+@blueprint_admin.method('TMDb.setConfig')
+def set_config(config: dict) -> int:
+    configs_obj = MConfigs(id=MConfigs.TMDb)
+    return configs_obj.update_c(MConfigs(config)).modified_count

@@ -7,15 +7,15 @@ from flask_jsonrpc.exceptions import InvalidRequestError
 
 from app import mongo
 from .tmdb import TMDb
-from ..common import Configs
+from ..config_helper import MConfigs
 
 logger = logging.getLogger(__name__)
 mongodb = mongo.db
 
-TMDB_CONFIG_ID = 'tmdb_config'
-
-project_dir, project_module_name = os.path.split(os.path.dirname(os.path.realpath(__file__)))
-DEFAULT_CONFIG_PATH = os.path.join(project_dir, project_module_name, 'default_config.yml')
+project_dir, project_module_name = os.path.split(
+    os.path.dirname(os.path.realpath(__file__)))
+DEFAULT_CONFIG_PATH = os.path.join(project_dir, project_module_name,
+                                   'default_config.yml')
 
 
 class MyTMDb(TMDb):
@@ -23,8 +23,7 @@ class MyTMDb(TMDb):
     def __init__(self):
         super().__init__()
 
-        doc = mongodb.tmdb.find_one({'id': TMDB_CONFIG_ID}) or {}
-        config_obj = Configs(doc)
+        config_obj = MConfigs(id=MConfigs.TMDb)
 
         self.session.params.update(config_obj.get_field('params') or {})
         self.session.headers.update(config_obj.get_field('headers') or {})
@@ -37,7 +36,8 @@ class MyTMDb(TMDb):
         }
         res_json = super().movie(movie_id, params=params)
         if 'id' not in res_json.keys():
-            raise InvalidRequestError(data={'message': res_json.get('status_message')})
+            raise InvalidRequestError(
+                data={'message': res_json.get('status_message')})
         return res_json
 
     def search_movie_id(self, filename):
@@ -51,7 +51,8 @@ class MyTMDb(TMDb):
         if 'total_results' not in res_json.keys():
             if 'errors' in res_json.keys():
                 raise InvalidRequestError(data={'message': res_json['errors']})
-            raise InvalidRequestError(data={'message': res_json.get('status_message')})
+            raise InvalidRequestError(
+                data={'message': res_json.get('status_message')})
 
         if res_json['total_results'] < 1:
             raise InvalidRequestError(data={'message': 'Total results: 0'})
@@ -77,49 +78,13 @@ class MyTMDb(TMDb):
         pass
 
 
-def update_config(config, add_if_not_exist=False):
-    """
-    初始化或更新配置项
-    :param config:
-    :param add_if_not_exist: True: 不存在时新增，一般用于初始化；
-                             False: 存在时才更新，一般用于后面更新配置。
-                             更新时不会新增那些不在默认配置里面的配置项
-    :return:
-    """
-    res = {}
-    for k, v in config.items():
-        res1 = {}
-        for _k, _v in v.items():
-            complete_k = k + '.' + _k
-
-            query = {
-                'id': TMDB_CONFIG_ID,
-                complete_k: {'$exists': not add_if_not_exist}
-            }
-
-            modified_count = mongodb.tmdb.update_one(
-                query, {'$set': {complete_k: _v}}).modified_count
-            if modified_count == 1:
-                # modified_count 等于 1 说明更新了 key 对应的配置
-                res1[_k] = modified_count
-        if res1:
-            res[k] = res1
-    return res
-
-
 def init():
-    default_configs = Configs.create(DEFAULT_CONFIG_PATH).default()
-    # 存在则不插入，不存在则插入
-    r = mongodb.tmdb.update_one({'id': TMDB_CONFIG_ID},
-                                {'$setOnInsert': default_configs},
-                                upsert=True)
-    # matched_count 等于 0 说明执行了 $setOnInsert
-    if r.matched_count == 0:
-        logger.info('tmdb default config loaded')
-        return
+    from . import api
+    configs_obj = MConfigs.create(DEFAULT_CONFIG_PATH)
 
-    # 初始化默认配置
-    update_config(default_configs, add_if_not_exist=True)
+    # 初始化配置文件
+    MConfigs(id=MConfigs.TMDb).insert_c(configs_obj)
+    logger.info('tmdb default configs loaded.')
 
 
 init()

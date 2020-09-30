@@ -3,8 +3,10 @@ import logging
 
 import coloredlogs
 from flask import Flask
-from flask_jsonrpc import JSONRPC
+from flask_jsonrpc import JSONRPC, JSONRPCBlueprint
 from flask_pymongo import PyMongo
+
+from app.common import AuthorizationSite
 
 coloredlogs.install(level='INFO')
 logger = logging.getLogger(__name__)
@@ -12,6 +14,10 @@ logger = logging.getLogger(__name__)
 mongo = PyMongo()
 
 jsonrpc = JSONRPC(None, '/api')
+
+blueprint = JSONRPCBlueprint('blueprint', __name__)
+blueprint_admin = JSONRPCBlueprint('blueprint_admin', __name__,
+                                   jsonrpc_site=AuthorizationSite)
 
 
 def after_request(response):
@@ -42,8 +48,10 @@ def create_app(config_obj):
 
     app.register_blueprint(onedrive_route_bp, url_prefix='/')
 
-    # from app.tmdb.api import tmdb_bp, tmdb_admin_bp
     # jsonrpc.register_blueprint(app, tmdb_bp, url_prefix='/tmdb')
     # jsonrpc.register_blueprint(app, tmdb_admin_bp, url_prefix='/admin/tmdb')
+    from app import tmdb
+    jsonrpc.register_blueprint(app, blueprint, url_prefix='/')
+    jsonrpc.register_blueprint(app, blueprint_admin, url_prefix='/admin')
 
     return app

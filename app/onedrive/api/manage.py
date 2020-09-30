@@ -77,7 +77,7 @@ def get_drives() -> list:
 
 @onedrive_admin_bp.method('Onedrive.getConfig')
 def get_config() -> dict:
-    return MConfigs(id=MConfigs.Drive).default()
+    return MConfigs(id=MConfigs.Drive).sensitive()
 
 
 @onedrive_admin_bp.method('Onedrive.setConfig')

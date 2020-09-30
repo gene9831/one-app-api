@@ -122,6 +122,10 @@ class MDrive(Auth, Drive):
         每天24点自动更新
         :return:
         """
+        if mongodb.drive_cache.find_one({'id': self.id}) is None:
+            # 如果此用户不存在了，就无需继续更新了
+            return
+
         threading.Thread(target=self.update_items).start()
 
         now = datetime.datetime.now()
