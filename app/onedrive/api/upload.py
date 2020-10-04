@@ -10,8 +10,8 @@ import requests
 from flask_jsonrpc.exceptions import InvalidRequestError
 
 from app.common import Utils
-from app.config_helper import MConfigs
-from . import onedrive_admin_bp
+from app.apis import yaml_config
+from app import jsonrpc_admin_bp
 from .. import mongodb, MDrive
 
 logger = logging.getLogger(__name__)
@@ -96,7 +96,7 @@ class UploadThread(threading.Thread):
         self.thread_pool.pop(self.uid)
 
     def run(self):
-        size_mb = MConfigs(id=MConfigs.Drive).get_v('upload_chunk_size')
+        size_mb = yaml_config.get_v('onedrive_upload_chunk_size')
         size_mb = round(size_mb / 5) * 5
         size_mb = 5 if size_mb < 5 else size_mb
         size_mb = 60 if size_mb > 60 else size_mb
@@ -193,57 +193,51 @@ class UploadThread(threading.Thread):
 
 
 class UploadThreadPool(threading.Thread):
-    def __init__(self, max_num):
+    def __init__(self):
         super().__init__(name='upload-thread-pool', daemon=True)
-        self.max_num = max_num
         self.pool: Dict[str, UploadThread] = {}
         self.pending: List[str] = []
-        self.lock = threading.Lock()
 
     def add_task(self, uid: str):
-        self.lock.acquire()
-        if uid not in self.pending:
-            self.pending.append(uid)
-            info = UploadInfo.create_from_mongo(uid)
-            info.status = 'pending'
-            info.commit()
-        self.lock.release()
+        with threading.Lock():
+            if uid not in self.pending:
+                self.pending.append(uid)
+                info = UploadInfo.create_from_mongo(uid)
+                info.status = 'pending'
+                info.commit()
 
     def stop_task(self, uid: str):
-        self.lock.acquire()
-        if uid in self.pool.keys():
-            # 停止运行中的任务
-            self.pool[uid].stop()
-        self.lock.release()
+        with threading.Lock():
+            if uid in self.pool.keys():
+                # 停止运行中的任务
+                self.pool[uid].stop()
 
     def del_task(self, uid: str):
-        self.lock.acquire()
-        if uid in self.pending:
-            # 删除等待中的任务
-            self.pending.remove(uid)
-        if uid in self.pool.keys():
-            # 删除运行中的任务
-            self.pool[uid].delete()
-        self.lock.release()
+        with threading.Lock():
+            if uid in self.pending:
+                # 删除等待中的任务
+                self.pending.remove(uid)
+            if uid in self.pool.keys():
+                # 删除运行中的任务
+                self.pool[uid].delete()
 
     def pop(self, uid):
-        self.lock.acquire()
-        self.pool.pop(uid, None)
-        self.lock.release()
+        with threading.Lock():
+            self.pool.pop(uid, None)
 
     def run(self):
         while True:
-            self.lock.acquire()
-            while len(self.pending) > 0 and len(self.pool) < self.max_num:
-                # 有等待任务并且线程池没有满
-                uid = self.pending.pop(0)
-                if uid not in self.pool.keys():
-                    thread = UploadThread(uid, self)
-                    # 在这里添加入线程池，而不是在UploadThread start后
-                    # 是为了保持pool同步
-                    self.pool[uid] = thread
-                    thread.start()
-            self.lock.release()
+            with threading.Lock():
+                while len(self.pending) > 0 and len(self.pool) < \
+                        yaml_config.get_v('onedrive_upload_max_threads'):
+                    # 有等待任务并且线程池没有满
+                    uid = self.pending.pop(0)
+                    if uid not in self.pool.keys():
+                        thread = UploadThread(uid, self)
+                        # 在这里添加入线程池，而不是在UploadThread start后
+                        # 是为了保持pool同步
+                        self.pool[uid] = thread
+                        thread.start()
 
             time.sleep(1)
 
@@ -255,11 +249,11 @@ for init_doc in mongodb.upload_info.find({'$or': [
     mongodb.upload_info.update_one({'uid': init_doc.get('uid')},
                                    {'$set': {'status': 'stopped'}})
 
-upload_pool = UploadThreadPool(20)
+upload_pool = UploadThreadPool()
 upload_pool.start()
 
 
-@onedrive_admin_bp.method('Onedrive.uploadFile')
+@jsonrpc_admin_bp.method('Onedrive.uploadFile')
 def upload_file(drive_id: str, upload_path: str, file_path: str) -> int:
     """
 
@@ -283,7 +277,7 @@ def upload_file(drive_id: str, upload_path: str, file_path: str) -> int:
         return -1
 
     _, filename = os.path.split(file_path)
-    uid = str(uuid.uuid1())
+    uid = str(uuid.uuid4())
     upload_info = UploadInfo(uid=uid,
                              drive_id=drive_id,
                              filename=filename,
@@ -298,7 +292,7 @@ def upload_file(drive_id: str, upload_path: str, file_path: str) -> int:
     return 0
 
 
-@onedrive_admin_bp.method('Onedrive.uploadFolder')
+@jsonrpc_admin_bp.method('Onedrive.uploadFolder')
 def upload_folder(drive_id: str, upload_path: str, folder_path: str) -> int:
     """
     上传文件夹下的文件，不上传嵌套的文件夹
@@ -329,7 +323,7 @@ def upload_folder(drive_id: str, upload_path: str, folder_path: str) -> int:
         if file_size <= 5 * 1024 * 1024:
             continue
 
-        uid = str(uuid.uuid1())
+        uid = str(uuid.uuid4())
         upload_info = UploadInfo(uid=uid,
                                  drive_id=drive_id,
                                  filename=file,
@@ -343,7 +337,7 @@ def upload_folder(drive_id: str, upload_path: str, folder_path: str) -> int:
     return 0
 
 
-@onedrive_admin_bp.method('Onedrive.uploadStatus')
+@jsonrpc_admin_bp.method('Onedrive.uploadStatus')
 def upload_status(drive_id: str, param: str = None) -> list:
     query = {'drive_id': drive_id}
 
@@ -369,7 +363,7 @@ def upload_status(drive_id: str, param: str = None) -> list:
     return res
 
 
-@onedrive_admin_bp.method('Onedrive.startUpload')
+@jsonrpc_admin_bp.method('Onedrive.startUpload')
 def start_upload(uid: str = None, uids: list = None) -> int:
     uids = uids or []
     if uid:
@@ -383,7 +377,7 @@ def start_upload(uid: str = None, uids: list = None) -> int:
     return 0  # 启动成功
 
 
-@onedrive_admin_bp.method('Onedrive.stopUpload')
+@jsonrpc_admin_bp.method('Onedrive.stopUpload')
 def stop_upload(uid: str = None, uids: list = None) -> int:
     uids = uids or []
     if uid:
@@ -395,7 +389,7 @@ def stop_upload(uid: str = None, uids: list = None) -> int:
     return 0
 
 
-@onedrive_admin_bp.method('Onedrive.deleteUpload')
+@jsonrpc_admin_bp.method('Onedrive.deleteUpload')
 def delete_upload(uid: str = None, uids: list = None) -> int:
     uids = uids or []
     if uid:

@@ -1,0 +1,28 @@
+# 请勿修改此文件！欲修改配置项，请在同级目录下新建一个config.yml的文件，
+# 将你需要修改的配置放到config.yml文件中即可
+
+# OneDrive配置
+# 网盘根目录
+onedrive_root_path: /
+# 电影目录
+onedrive_movies_path: /OneMovie/Movies
+# 剧集目录
+onedrive_tv_series_path: /OneMovie/TV-Series
+# 上传分片大小，单位MB。最好是5的倍数，最小5，最大60
+onedrive_upload_chunk_size: 5
+# 最大上传线程数，如果
+onedrive_upload_max_threads: 5
+
+# TMDb配置
+# 语言
+tmdb_language: zh-CN
+# TMDb api验证token
+tmdb_bearer_token:
+# 访问TMDb api需要配置代理。这个值不需要以http开头，直接[ip:端口]即可
+tmdb_proxy: 127.0.0.1:1080
+
+# Admin配置
+# 管理员密码
+auth_password: one-movie
+# 登录有效时长(天)
+auth_token_max_age: 14

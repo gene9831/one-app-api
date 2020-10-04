@@ -1,22 +1,14 @@
 # -*- coding: utf-8 -*-
 import datetime
 import logging
-import os
 import threading
 
 from app import mongo
 from .graph import Auth, Drive
 from ..common import CURDCounter
-from ..config_helper import MConfigs
 
 logger = logging.getLogger(__name__)
 mongodb = mongo.db
-
-project_dir, project_module_name = os.path.split(
-    os.path.dirname(os.path.realpath(__file__)))
-
-CURRENT_PATH = os.path.join(project_dir, project_module_name)
-DEFAULT_CONFIG_PATH = os.path.join(CURRENT_PATH, 'default_config.yml')
 
 
 class MDrive(Auth, Drive):
@@ -70,11 +62,8 @@ class MDrive(Auth, Drive):
 
     def update_items(self):
         # 每个文件上传成功后或者删除后会调用，这里加锁
-        lock = threading.Lock()
-        lock.acquire()
-
         counter = CURDCounter()
-        try:
+        with threading.Lock():
             cache = mongodb.drive_cache.find_one({'id': self.id}) or {}
             delta_link = cache.get('delta_link')
 
@@ -113,46 +102,35 @@ class MDrive(Auth, Drive):
             logger.info(
                 'drive({}) update items: {}'.format(self.id[:16],
                                                     counter.detail()))
-        finally:
-            lock.release()
-            return counter
+        return counter
 
-    def auto_update_items(self):
-        """
-        每天24点自动更新
-        :return:
-        """
-        if mongodb.drive_cache.find_one({'id': self.id}) is None:
-            # 如果此用户不存在了，就无需继续更新了
-            return
 
-        threading.Thread(target=self.update_items).start()
+def auto_update():
+    """
+    每天24点自动更新
+    :return:
+    """
+    for drive in MDrive.authed_drives():
+        threading.Thread(target=drive.update_items).start()
 
-        now = datetime.datetime.now()
-        mid_night = datetime.datetime(now.year, now.month, now.day, 23, 59, 59)
-        timedelta = mid_night - now
+    now = datetime.datetime.now()
+    mid_night = datetime.datetime(now.year, now.month, now.day, 23, 59, 59)
+    timedelta = mid_night - now
 
-        # 加10s防抖
-        timer = threading.Timer(timedelta.seconds + 10, self.auto_update_items)
-        timer.name = 'AutoUpdateItems({})'.format(self.id[:16])
-        timer.daemon = True
-        timer.start()
+    # 加10s防抖
+    timer = threading.Timer(timedelta.seconds + 10, auto_update)
+    timer.name = 'onedrive-auto-updater'
+    timer.daemon = True
+    timer.start()
 
 
 def init():
+    from . import api
     # 清空 auth_temp
     mongodb.auth_temp.delete_many({})
 
-    configs_obj = MConfigs.create(DEFAULT_CONFIG_PATH)
-
-    # 初始化配置文件
-    MConfigs(id=MConfigs.Drive).insert_c(configs_obj)
-    logger.info('onedrive default configs loaded.')
-
-    # drive相关
-    for drive in MDrive.authed_drives():
-        # 更新items
-        drive.auto_update_items()
+    # 自动更新items
+    auto_update()
 
 
 init()

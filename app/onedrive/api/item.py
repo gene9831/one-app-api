@@ -3,31 +3,36 @@
 from flask import redirect, abort
 from flask_jsonrpc.exceptions import InvalidRequestError
 
-from app.config_helper import MConfigs
-from . import onedrive_bp, onedrive_admin_bp, onedrive_route_bp
+from app import jsonrpc_bp, jsonrpc_admin_bp
+from app.apis import yaml_config
+from . import onedrive_route_bp
 from .. import mongodb, MDrive
 
+onedrive_root_path = '/drive/root:'
 
-@onedrive_bp.method('Onedrive.getItemsByPath')
+
+@jsonrpc_bp.method('Onedrive.getItemsByPath')
 def get_items_by_path(drive_id: str, path: str, page: int = 1,
                       limit: int = 20, query: dict = None) -> list:
     query = query or {}
     skip = (page - 1) * limit
-    root_path = MConfigs(id=MConfigs.Drive).get_v('root_path')
-    docs = []
+    root_path = onedrive_root_path + yaml_config.get_v('onedrive_root_path')
+    if root_path.endswith('/'):
+        root_path = root_path[:-1]
 
     path = '' if path == '/' else path
     query.update({
         'parentReference.driveId': drive_id,
         'parentReference.path': root_path + path
     })
+    docs = []
     for item in mongodb.item.find(query).skip(skip).limit(limit):
         item.pop('_id', None)
         docs.append(item)
     return docs
 
 
-@onedrive_admin_bp.method('Onedrive.listDrivePath')
+@jsonrpc_admin_bp.method('Onedrive.listDrivePath')
 def list_drive_path(drive_id: str, path: str) -> list:
     path = path.strip().replace('\\', '/')
     if path.endswith('/'):
@@ -35,7 +40,7 @@ def list_drive_path(drive_id: str, path: str) -> list:
 
     query = {
         'parentReference.driveId': drive_id,
-        'parentReference.path': '/drive/root:' + path
+        'parentReference.path': onedrive_root_path + path
     }
 
     res = []
@@ -49,14 +54,15 @@ def list_drive_path(drive_id: str, path: str) -> list:
     return sorted(res, key=lambda x: x['value'].lower())
 
 
-@onedrive_bp.method('Onedrive.getMovies')
+@jsonrpc_bp.method('Onedrive.getMovies')
 def get_movies(page: int = 1, limit: int = 20) -> list:
     skip = (page - 1) * limit
     docs = []
-    movies_path = MConfigs(id=MConfigs.Drive).get_v('movies_path')
+    movies_path = yaml_config.get_v('onedrive_movies_path')
 
     for item_doc in mongodb.item.find({
-        'parentReference.path': {'$regex': '^/drive/root:' + movies_path},
+        'parentReference.path': {
+            '$regex': '^{}{}'.format(onedrive_root_path, movies_path)},
         'file.mimeType': {'$regex': '^video'}
     }).skip(skip).limit(limit):
         item_doc.pop('_id')
@@ -65,14 +71,15 @@ def get_movies(page: int = 1, limit: int = 20) -> list:
     return docs
 
 
-@onedrive_bp.method('Onedrive.getTVSeries')
+@jsonrpc_bp.method('Onedrive.getTVSeries')
 def get_tv_series(page: int = 1, limit: int = 20) -> list:
     skip = (page - 1) * limit
     docs = []
-    tv_series_path = MConfigs(id=MConfigs.Drive).get_v('tv_series_path')
+    tv_series_path = yaml_config.get_v('onedrive_tv_series_path')
 
     for item_doc in mongodb.item.find({
-        'parentReference.path': {'$regex': '^/drive/root:' + tv_series_path},
+        'parentReference.path': {
+            '$regex': '^{}{}'.format(onedrive_root_path, tv_series_path)},
         'file.mimeType': {'$regex': '^video'}
     }).skip(skip).limit(limit):
         item_doc.pop('_id')
@@ -81,7 +88,7 @@ def get_tv_series(page: int = 1, limit: int = 20) -> list:
     return docs
 
 
-@onedrive_bp.method('Onedrive.getItem')
+@jsonrpc_bp.method('Onedrive.getItem')
 def get_item(item_id: str) -> dict:
     doc = mongodb.item.find_one({'id': item_id})
     if doc is None:
@@ -90,7 +97,7 @@ def get_item(item_id: str) -> dict:
     return doc
 
 
-@onedrive_bp.method('Onedrive.getItemContent')
+@jsonrpc_bp.method('Onedrive.getItemContent')
 def get_item_content(item_id: str) -> str:
     doc = get_item(item_id)
 
@@ -110,7 +117,7 @@ def item_content(item_id, name):
     return redirect(content_url)
 
 
-@onedrive_admin_bp.method('Onedrive.getItemSharedLink')
+@jsonrpc_admin_bp.method('Onedrive.getItemSharedLink')
 def get_item_shared_link(item_id: str) -> str:
     cache = mongodb.item_cache.find_one({'id': item_id})
     if cache and cache.get('create_link'):
@@ -151,7 +158,7 @@ def get_item_shared_link(item_id: str) -> str:
     return direct_link
 
 
-@onedrive_admin_bp.method('Onedrive.deleteItemSharedLink')
+@jsonrpc_admin_bp.method('Onedrive.deleteItemSharedLink')
 def delete_item_shared_link(item_id: str) -> int:
     cache = mongodb.item_cache.find_one({'id': item_id})
     if cache is None or cache.get('create_link') is None:

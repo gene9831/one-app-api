@@ -1,21 +1,15 @@
 # -*- coding: utf-8 -*-
 import logging
-import os
 import re
 
 from flask_jsonrpc.exceptions import InvalidRequestError
 
 from app import mongo
+from app.apis import yaml_config
 from .tmdb import TMDb
-from ..config_helper import MConfigs
 
 logger = logging.getLogger(__name__)
 mongodb = mongo.db
-
-project_dir, project_module_name = os.path.split(
-    os.path.dirname(os.path.realpath(__file__)))
-DEFAULT_CONFIG_PATH = os.path.join(project_dir, project_module_name,
-                                   'default_config.yml')
 
 
 class MyTMDb(TMDb):
@@ -23,11 +17,16 @@ class MyTMDb(TMDb):
     def __init__(self):
         super().__init__()
 
-        config_obj = MConfigs(id=MConfigs.TMDb)
+        self.session.params.update(
+            {'language': yaml_config.get_v('tmdb_language'),
+             'include_adult': False})
 
-        self.session.params.update(config_obj.get_field('params') or {})
-        self.session.headers.update(config_obj.get_field('headers') or {})
-        self.session.proxies = config_obj.get_v('proxies') or {}
+        self.session.headers.update(
+            {'Authorization': yaml_config.get_v('tmdb_bearer_token')})
+
+        self.session.proxies.update(
+            {'http': 'http://' + yaml_config.get_v('tmdb_proxy'),
+             'https': 'https://' + yaml_config.get_v('tmdb_proxy')})
 
     def movie(self, movie_id, params=None):
         params = {
@@ -80,11 +79,6 @@ class MyTMDb(TMDb):
 
 def init():
     from . import api
-    configs_obj = MConfigs.create(DEFAULT_CONFIG_PATH)
-
-    # 初始化配置文件
-    MConfigs(id=MConfigs.TMDb).insert_c(configs_obj)
-    logger.info('tmdb default configs loaded.')
 
 
 init()
