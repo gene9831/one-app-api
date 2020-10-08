@@ -9,7 +9,7 @@ from app import jsonrpc_admin_bp
 from config import Config
 
 CONFIG_NAME = 'config.yml'
-CONFIG_BAK_NAME = 'config.bak.yml'
+CONFIG_DEFAULT_NAME = 'config_default.yml'
 
 
 class YamlConfig:
@@ -19,7 +19,7 @@ class YamlConfig:
         self.types = {}
 
         # 加载默认配置
-        path = os.path.join(Config.PROJECT_DIR, CONFIG_BAK_NAME)
+        path = os.path.join(Config.PROJECT_DIR, CONFIG_DEFAULT_NAME)
         with open(path, 'r', encoding='utf8') as f:
             config = yaml.load(f, Loader=yaml.FullLoader)
 
@@ -28,7 +28,7 @@ class YamlConfig:
             self.config[key] = value or ''
             self.types[key] = type(self.config[key])
 
-        # 加载自定配置
+        # 加载自定义配置
         path = os.path.join(Config.PROJECT_DIR, CONFIG_NAME)
         if not os.path.isfile(path):
             return

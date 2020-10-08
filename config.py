@@ -8,4 +8,4 @@ class Config:
     PROJECT_DIR = os.path.dirname(os.path.realpath(__file__))
 
     # MongoDB
-    MONGO_URI = 'mongodb://one:movie@172.25.11.128:27017/one_movie'
+    MONGO_URI = 'mongodb://one:movie@192.168.0.126:27017/one_movie'
