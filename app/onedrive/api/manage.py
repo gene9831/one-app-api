@@ -3,14 +3,14 @@ import logging
 import os
 import threading
 
-from app import jsonrpc_admin_bp
+from app import jsonrpc_bp
 from app.common import CURDCounter
 from .. import MDrive, mongodb
 
 logger = logging.getLogger(__name__)
 
 
-@jsonrpc_admin_bp.method('Onedrive.updateItems')
+@jsonrpc_bp.method('Onedrive.updateItems', require_auth=True)
 def update_items(drive_id: str = None) -> dict:
     drives = []
 
@@ -28,7 +28,7 @@ def update_items(drive_id: str = None) -> dict:
     return counter.json()
 
 
-@jsonrpc_admin_bp.method('Onedrive.deleteItems')
+@jsonrpc_bp.method('Onedrive.deleteItems', require_auth=True)
 def delete_items(drive_id: str = None) -> dict:
     drive_ids = []
 
@@ -55,7 +55,7 @@ def delete_items(drive_id: str = None) -> dict:
     return counter.json()
 
 
-@jsonrpc_admin_bp.method('Onedrive.dropAll')
+@jsonrpc_bp.method('Onedrive.dropAll', require_auth=True)
 def drop_all() -> int:
     mongodb.auth_temp.drop()
     mongodb.drive.drop()
@@ -65,7 +65,7 @@ def drop_all() -> int:
     return 0
 
 
-@jsonrpc_admin_bp.method('Onedrive.getDrives')
+@jsonrpc_bp.method('Onedrive.getDrives', require_auth=True)
 def get_drives() -> list:
     res = []
     for drive_doc in mongodb.drive.find():
@@ -74,7 +74,7 @@ def get_drives() -> list:
     return res
 
 
-@jsonrpc_admin_bp.method('Onedrive.showThreads')
+@jsonrpc_bp.method('Onedrive.showThreads', require_auth=True)
 def show_threads() -> list:
     res = []
     for item in threading.enumerate():
@@ -82,7 +82,7 @@ def show_threads() -> list:
     return res
 
 
-@jsonrpc_admin_bp.method('Onedrive.apiTest')
+@jsonrpc_bp.method('Onedrive.apiTest', require_auth=True)
 def api_test(drive_id: str, method: str, url: str,
              headers: dict = None, data: dict = None) -> dict:
     drive = MDrive.create(drive_id)
@@ -90,7 +90,7 @@ def api_test(drive_id: str, method: str, url: str,
     return res.json()
 
 
-@jsonrpc_admin_bp.method('Onedrive.listSysPath')
+@jsonrpc_bp.method('Onedrive.listSysPath', require_auth=True)
 def list_sys_path(path, only_dir: bool = False) -> list:
     if not os.path.isdir(path):
         return []

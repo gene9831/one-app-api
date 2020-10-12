@@ -2,13 +2,13 @@
 import logging
 import threading
 
-from app import jsonrpc_admin_bp
+from app import jsonrpc_bp
 from .. import MDrive, mongodb
 
 logger = logging.getLogger(__name__)
 
 
-@jsonrpc_admin_bp.method('Onedrive.getSignInUrl')
+@jsonrpc_bp.method('Onedrive.getSignInUrl', require_auth=True)
 def get_sign_in_url() -> str:
     sign_in_url, state = MDrive.get_sign_in_url()
     mongodb.auth_temp.insert_one({'state': state})
@@ -23,7 +23,7 @@ def get_sign_in_url() -> str:
     return sign_in_url
 
 
-@jsonrpc_admin_bp.method('Onedrive.putCallbackUrl')
+@jsonrpc_bp.method('Onedrive.putCallbackUrl', require_auth=True)
 def put_callback_url(url: str) -> dict:
     from urllib import parse
     params = parse.parse_qs(parse.urlparse(url).query)
@@ -57,7 +57,7 @@ def put_callback_url(url: str) -> dict:
     return {'code': 0, 'message': '登录成功'}
 
 
-@jsonrpc_admin_bp.method('Onedrive.signOut')
+@jsonrpc_bp.method('Onedrive.signOut', require_auth=True)
 def sign_out(drive_id: str) -> int:
     mongodb.drive.delete_one({'id': drive_id})
     mongodb.drive_cache.delete_one({'id': drive_id})

@@ -3,8 +3,8 @@
 from flask import redirect, abort
 from flask_jsonrpc.exceptions import InvalidRequestError
 
-from app import jsonrpc_bp, jsonrpc_admin_bp
-from app.apis import yaml_config
+from app import jsonrpc_bp
+from app.config_inst import yaml_config
 from . import onedrive_route_bp
 from .. import mongodb, MDrive
 
@@ -32,7 +32,7 @@ def get_items_by_path(drive_id: str, path: str, page: int = 1,
     return docs
 
 
-@jsonrpc_admin_bp.method('Onedrive.listDrivePath')
+@jsonrpc_bp.method('Onedrive.listDrivePath', require_auth=True)
 def list_drive_path(drive_id: str, path: str) -> list:
     path = path.strip().replace('\\', '/')
     if path.endswith('/'):
@@ -117,7 +117,7 @@ def item_content(item_id, name):
     return redirect(content_url)
 
 
-@jsonrpc_admin_bp.method('Onedrive.getItemSharedLink')
+@jsonrpc_bp.method('Onedrive.getItemSharedLink', require_auth=True)
 def get_item_shared_link(item_id: str) -> str:
     cache = mongodb.item_cache.find_one({'id': item_id})
     if cache and cache.get('create_link'):
@@ -158,7 +158,7 @@ def get_item_shared_link(item_id: str) -> str:
     return direct_link
 
 
-@jsonrpc_admin_bp.method('Onedrive.deleteItemSharedLink')
+@jsonrpc_bp.method('Onedrive.deleteItemSharedLink', require_auth=True)
 def delete_item_shared_link(item_id: str) -> int:
     cache = mongodb.item_cache.find_one({'id': item_id})
     if cache is None or cache.get('create_link') is None:

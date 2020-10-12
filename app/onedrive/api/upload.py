@@ -9,9 +9,9 @@ from typing import Dict, List
 import requests
 from flask_jsonrpc.exceptions import InvalidRequestError
 
+from app import jsonrpc_bp
+from app.config_inst import yaml_config
 from app.common import Utils
-from app.apis import yaml_config
-from app import jsonrpc_admin_bp
 from .. import mongodb, MDrive
 
 logger = logging.getLogger(__name__)
@@ -105,11 +105,16 @@ class UploadThread(threading.Thread):
         info = UploadInfo.create_from_mongo(self.uid)
 
         try:
+            info.status = 'running'
+            info.commit()
             if not info.upload_url:
                 # 创建上传会话
                 drive = MDrive.create(info.drive_id)
-                res_json = drive.create_upload_session(
-                    info.upload_path + info.filename)
+                with threading.Lock():
+                    # 创建上传会话会更新token，可能出现多个线程更新token，加个锁
+                    res_json = drive.create_upload_session(
+                        info.upload_path + info.filename)
+
                 upload_url = res_json.get('uploadUrl')
                 if upload_url:
                     info.upload_url = upload_url
@@ -123,7 +128,6 @@ class UploadThread(threading.Thread):
                 # upload_url失效
                 raise Exception(str(res_json))
 
-            info.status = 'running'
             info.finished = int(res_json['nextExpectedRanges'][0].split('-')[0])
             info.commit()
 
@@ -253,7 +257,7 @@ upload_pool = UploadThreadPool()
 upload_pool.start()
 
 
-@jsonrpc_admin_bp.method('Onedrive.uploadFile')
+@jsonrpc_bp.method('Onedrive.uploadFile', require_auth=True)
 def upload_file(drive_id: str, upload_path: str, file_path: str) -> int:
     """
 
@@ -292,7 +296,7 @@ def upload_file(drive_id: str, upload_path: str, file_path: str) -> int:
     return 0
 
 
-@jsonrpc_admin_bp.method('Onedrive.uploadFolder')
+@jsonrpc_bp.method('Onedrive.uploadFolder', require_auth=True)
 def upload_folder(drive_id: str, upload_path: str, folder_path: str) -> int:
     """
     上传文件夹下的文件，不上传嵌套的文件夹
@@ -337,7 +341,7 @@ def upload_folder(drive_id: str, upload_path: str, folder_path: str) -> int:
     return 0
 
 
-@jsonrpc_admin_bp.method('Onedrive.uploadStatus')
+@jsonrpc_bp.method('Onedrive.uploadStatus', require_auth=True)
 def upload_status(drive_id: str, param: str = None) -> list:
     query = {'drive_id': drive_id}
 
@@ -363,7 +367,7 @@ def upload_status(drive_id: str, param: str = None) -> list:
     return res
 
 
-@jsonrpc_admin_bp.method('Onedrive.startUpload')
+@jsonrpc_bp.method('Onedrive.startUpload', require_auth=True)
 def start_upload(uid: str = None, uids: list = None) -> int:
     uids = uids or []
     if uid:
@@ -377,7 +381,7 @@ def start_upload(uid: str = None, uids: list = None) -> int:
     return 0  # 启动成功
 
 
-@jsonrpc_admin_bp.method('Onedrive.stopUpload')
+@jsonrpc_bp.method('Onedrive.stopUpload', require_auth=True)
 def stop_upload(uid: str = None, uids: list = None) -> int:
     uids = uids or []
     if uid:
@@ -389,7 +393,7 @@ def stop_upload(uid: str = None, uids: list = None) -> int:
     return 0
 
 
-@jsonrpc_admin_bp.method('Onedrive.deleteUpload')
+@jsonrpc_bp.method('Onedrive.deleteUpload', require_auth=True)
 def delete_upload(uid: str = None, uids: list = None) -> int:
     uids = uids or []
     if uid:

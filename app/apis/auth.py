@@ -6,11 +6,11 @@ import uuid
 from flask_jsonrpc.exceptions import JSONRPCError
 
 from app import jsonrpc_bp
-from .config import yaml_config
+from app.config_inst import yaml_config
 from . import mongodb
 
 
-def new_token():
+def gen_token():
     uuid_bytes = uuid.uuid4().bytes
     return hashlib.sha1(uuid_bytes).hexdigest() + hashlib.md5(
         uuid_bytes).hexdigest()
@@ -19,30 +19,36 @@ def new_token():
 def insert_new_token():
     auth_token_max_days = 3600 * 24 * yaml_config.get_v('auth_token_max_age')
     res = {
-        'token': new_token,
+        'token': gen_token(),
         'expires_at': time.time() + auth_token_max_days
     }
     mongodb.token.insert_one(res)
     return res
 
 
-@jsonrpc_bp.method('Admin.auth')
+@jsonrpc_bp.method('Auth.login')
 def auth(password: str) -> dict:
     if password != yaml_config.get_v('auth_password'):
         raise JSONRPCError(message='Unauthorized',
                            data={'message': 'Wrong password'})
 
-    return insert_new_token()
+    res = insert_new_token()
+    res.pop('_id', None)
+    return res
 
 
-@jsonrpc_bp.method('Admin.validateToken')
+@jsonrpc_bp.method('Auth.validateToken')
 def validate_token(token: str) -> dict:
     # 删除过期token
     mongodb.token.delete_many({'expires_at': {'$lt': time.time()}})
-    # 让旧token失效
-    deleted_count = mongodb.token.delete_one({'token': token}).deleted_count
-    if deleted_count == 0:
+
+    # 每验证一次token，让旧token尽快失效
+    matched_count = mongodb.token.update_one({'token': token}, {
+        '$set': {'expires_at': time.time() + 300}}).matched_count
+    if matched_count == 0:
         raise JSONRPCError(message='TokenError',
                            data={'Token validation failed'})
-
-    return insert_new_token()
+    # 返回新token
+    res = insert_new_token()
+    res.pop('_id', None)
+    return res

@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import logging
+import time
 
 import coloredlogs
 from flask import Flask, request
@@ -15,11 +16,16 @@ mongo = PyMongo()
 
 
 class AuthorizationSite(JSONRPCSite):
-    @staticmethod
-    def check_auth(req_json) -> bool:
-        # TODO 换成token验证
-        password = request.headers.get('X-Password')
-        return password == 'secret'
+    def check_auth(self, req_json) -> bool:
+        view_func = self.view_funcs.get(req_json['method'])
+        if getattr(view_func, 'jsonrpc_options', {}).get('require_auth'):
+            # 需要授权认证 token验证
+            token = request.headers.get('X-Password')
+            return mongo.db.token.find_one({
+                'token': token,
+                'expires_at': {'$gt': time.time()}
+            }) is not None
+        return True
 
     def dispatch(self, req_json):
         if not self.check_auth(req_json):
@@ -29,10 +35,8 @@ class AuthorizationSite(JSONRPCSite):
 
 
 jsonrpc = JSONRPC(None, '/api')
-
-jsonrpc_bp = JSONRPCBlueprint('blueprint', __name__)
-jsonrpc_admin_bp = JSONRPCBlueprint('blueprint_admin', __name__,
-                                    jsonrpc_site=AuthorizationSite)
+jsonrpc_bp = JSONRPCBlueprint('blueprint', __name__,
+                              jsonrpc_site=AuthorizationSite)
 
 
 def after_request(response):
@@ -58,7 +62,6 @@ def create_app(config_obj):
 
     from app import onedrive, tmdb, apis
     jsonrpc.register_blueprint(app, jsonrpc_bp, url_prefix='/')
-    jsonrpc.register_blueprint(app, jsonrpc_admin_bp, url_prefix='/admin')
 
     from app.onedrive.api import onedrive_route_bp
     app.register_blueprint(onedrive_route_bp, url_prefix='/od')
