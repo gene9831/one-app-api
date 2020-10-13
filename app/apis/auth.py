@@ -23,6 +23,7 @@ def insert_new_token():
         'expires_at': time.time() + auth_token_max_days
     }
     mongodb.token.insert_one(res)
+    res.pop('_id', None)
     return res
 
 
@@ -32,9 +33,7 @@ def auth(password: str) -> dict:
         raise JSONRPCError(message='Unauthorized',
                            data={'message': 'Wrong password'})
 
-    res = insert_new_token()
-    res.pop('_id', None)
-    return res
+    return insert_new_token()
 
 
 @jsonrpc_bp.method('Auth.validateToken')
@@ -42,13 +41,10 @@ def validate_token(token: str) -> dict:
     # 删除过期token
     mongodb.token.delete_many({'expires_at': {'$lt': time.time()}})
 
-    # 每验证一次token，让旧token尽快失效
-    matched_count = mongodb.token.update_one({'token': token}, {
-        '$set': {'expires_at': time.time() + 300}}).matched_count
-    if matched_count == 0:
+    # 每验证一次token，让旧token尽失效
+    deleted_count = mongodb.token.delete_one({'token': token}).deleted_count
+    if deleted_count == 0:
         raise JSONRPCError(message='TokenError',
-                           data={'Token validation failed'})
+                           data={'message': 'Token validation failed'})
     # 返回新token
-    res = insert_new_token()
-    res.pop('_id', None)
-    return res
+    return insert_new_token()

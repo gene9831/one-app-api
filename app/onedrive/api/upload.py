@@ -134,7 +134,7 @@ class UploadThread(threading.Thread):
             with open(info.file_path, 'rb') as f:
                 f.seek(info.finished, 0)
 
-                while not self.stopped:
+                while True:
                     start_time = time.time()
 
                     chunk_start = f.tell()
@@ -186,6 +186,11 @@ class UploadThread(threading.Thread):
                         return
 
                     info.commit()
+
+                    if self.stopped:
+                        info.speed = 0
+                        info.commit()
+                        break
         except Exception as e:
             logger.error(e)
             info.status = 'error'
@@ -251,7 +256,7 @@ for init_doc in mongodb.upload_info.find({'$or': [
     {'status': 'pending'}
 ]}):
     mongodb.upload_info.update_one({'uid': init_doc.get('uid')},
-                                   {'$set': {'status': 'stopped'}})
+                                   {'$set': {'status': 'stopped', 'speed': 0}})
 
 upload_pool = UploadThreadPool()
 upload_pool.start()
