@@ -134,6 +134,8 @@ class UploadThread(threading.Thread):
             with open(info.file_path, 'rb') as f:
                 f.seek(info.finished, 0)
 
+                upload_session = requests.Session()
+
                 while True:
                     start_time = time.time()
 
@@ -156,8 +158,9 @@ class UploadThread(threading.Thread):
                     res = None
                     while res is None:
                         try:
-                            res = requests.put(info.upload_url, headers=headers,
-                                               data=data)
+                            res = upload_session.put(info.upload_url,
+                                                     headers=headers,
+                                                     data=data)
                             if res.status_code >= 500:
                                 # OneDrive服务器错误，稍后继续尝试
                                 res = None
@@ -166,7 +169,6 @@ class UploadThread(threading.Thread):
                                 # 文件未找到，因为其他原因被删除
                                 raise Exception(res.text)
                             if self.deleted:
-                                # requests.delete(info.upload_url)
                                 return
                         except requests.exceptions.RequestException as e:
                             logger.error(e)
