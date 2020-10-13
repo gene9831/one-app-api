@@ -111,7 +111,8 @@ def auto_update():
     :return:
     """
     for drive in MDrive.authed_drives():
-        threading.Thread(target=drive.update_items).start()
+        drive.update_items()
+        # threading.Thread(target=drive.update_items).start()
 
     now = datetime.datetime.now()
     mid_night = datetime.datetime(now.year, now.month, now.day, 23, 59, 59)

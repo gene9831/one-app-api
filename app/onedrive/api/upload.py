@@ -86,8 +86,6 @@ class UploadThread(threading.Thread):
 
     def stop(self):
         self.stopped = True
-        mongodb.upload_info.update_one({'uid': self.uid},
-                                       {'$set': {'status': 'stopped'}})
 
     def delete(self):
         self.deleted = True
@@ -219,6 +217,9 @@ class UploadThreadPool(threading.Thread):
 
     def stop_task(self, uid: str):
         with threading.Lock():
+            if uid in self.pending:
+                # 停止等待中的任务
+                self.pending.remove(uid)
             if uid in self.pool.keys():
                 # 停止运行中的任务
                 self.pool[uid].stop()
@@ -396,6 +397,9 @@ def stop_upload(uid: str = None, uids: list = None) -> int:
 
     for uid in uids:
         upload_pool.stop_task(uid)
+        mongodb.upload_info.update_one(
+            {'uid': uid, '$or': [{'status': 'running'}, {'status': 'pending'}]},
+            {'$set': {'status': 'stopped'}})
 
     return 0
 
