@@ -350,7 +350,9 @@ def upload_folder(drive_id: str, upload_path: str, folder_path: str) -> int:
 
 
 @jsonrpc_bp.method('Onedrive.uploadStatus', require_auth=True)
-def upload_status(drive_id: str, param: str = None) -> list:
+def upload_status(drive_id: str, param: str = None, page: int = 0,
+                  limit: int = 10) -> dict:
+    skip = page * limit
     query = {'drive_id': drive_id}
 
     if param == 'running':
@@ -366,13 +368,19 @@ def upload_status(drive_id: str, param: str = None) -> list:
     elif param is not None:
         query.update({'status': param})
 
-    res = []
-    for doc in mongodb.upload_info.find(query):
+    count = mongodb.upload_info.count_documents(query)
+    data = []
+
+    cursor = mongodb.upload_info.find(query)
+    if param == 'running':
+        cursor = cursor.sort([('status', -1)])
+
+    for doc in cursor.skip(skip).limit(limit):
         doc.pop('_id', None)
         doc.pop('upload_url', None)
-        res.append(doc)
+        data.append(doc)
 
-    return res
+    return {'count': count, 'data': data}
 
 
 @jsonrpc_bp.method('Onedrive.startUpload', require_auth=True)
