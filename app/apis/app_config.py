@@ -20,7 +20,9 @@ def get_value(section: str, key: str) -> Union[str, bool, int, float]:
 @jsonrpc_bp.method('AppConfig.set', require_auth=True)
 def set_value(section: str, key: str, value: Any) -> int:
     res = g_app_config.set(section, key, value)
-    if res == -1:
+    if res == 0:
+        return 0
+    elif res == -1:
         raise JSONRPCError(message='SectionError',
                            data={'message': 'section does not exist'})
     elif res == -2:
@@ -31,7 +33,10 @@ def set_value(section: str, key: str, value: Any) -> int:
             message='ValueError',
             data={'message': 'the type of "{}" should be {}'.format(key, type(
                 g_app_config.get(section, key)))})
-    return 0
+    elif res == -4:
+        raise JSONRPCError(message='PermissionError')
+    else:
+        raise JSONRPCError(message='UnknownError')
 
 
 @jsonrpc_bp.method('AppConfig.reset', require_auth=True)

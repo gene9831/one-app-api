@@ -146,6 +146,9 @@ class AppConfig:
         if not isinstance(value, type(self.config[section][key].value)):
             # Value error
             return -3
+        if self.config[section][key].editable is False:
+            # Permission error
+            return -4
         self.config[section][key].value = value
         return 0
 
