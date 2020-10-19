@@ -1,0 +1,49 @@
+{
+  "onedrive": {
+    "root_path": {
+      "name": "网盘根目录",
+      "value": "/",
+      "description": "",
+      "editable": true,
+      "sensitive": false
+    },
+    "movies_path": {
+      "name": "电影目录",
+      "value": "/OneMovie/Movies",
+      "description": "设置电影文件的目录，可以不在根目录或其子目录下"
+    },
+    "tv_series_path": {
+      "name": "剧集目录",
+      "value": "/OneMovie/TV-Series",
+      "description": "设置剧集文件的目录，可以不在根目录或其子目录下"
+    },
+    "upload_chunk_size": {
+      "name": "上传分片大小(MB)",
+      "value": 10,
+      "description": "设置成5的正整数倍才有效，最大60。根据自己的上传速度调节"
+    },
+    "upload_threads_num": {
+      "name": "上传线程数",
+      "value": 5,
+      "description": ""
+    }
+  },
+  "tmdb": {
+    "language": "zh-CN",
+    "bearer_token": "",
+    "proxy": "127.0.0.1:1080"
+  },
+  "admin": {
+    "auth_password": {
+      "name": "后台登录密码",
+      "value": "",
+      "editable": false,
+      "sensitive": true
+    },
+    "auth_token_max_age": {
+      "name": "登录有效时长(天)",
+      "value": 14,
+      "description": "每登录一次刷新有效时长"
+    }
+  }
+}

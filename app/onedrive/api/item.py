@@ -4,7 +4,7 @@ from flask import redirect, abort
 from flask_jsonrpc.exceptions import InvalidRequestError
 
 from app import jsonrpc_bp
-from app.config_inst import yaml_config
+from app.app_config_inst import g_app_config
 from . import onedrive_route_bp
 from .. import mongodb, MDrive
 
@@ -16,7 +16,7 @@ def get_items_by_path(drive_id: str, path: str, page: int = 1,
                       limit: int = 20, query: dict = None) -> list:
     query = query or {}
     skip = (page - 1) * limit
-    root_path = onedrive_root_path + yaml_config.get_v('onedrive_root_path')
+    root_path = onedrive_root_path + g_app_config.get('onedrive', 'root_path')
     if root_path.endswith('/'):
         root_path = root_path[:-1]
 
@@ -58,7 +58,7 @@ def list_drive_path(drive_id: str, path: str) -> list:
 def get_movies(page: int = 1, limit: int = 20) -> list:
     skip = (page - 1) * limit
     docs = []
-    movies_path = yaml_config.get_v('onedrive_movies_path')
+    movies_path = g_app_config.get('onedrive', 'movies_path')
 
     for item_doc in mongodb.item.find({
         'parentReference.path': {
@@ -75,7 +75,7 @@ def get_movies(page: int = 1, limit: int = 20) -> list:
 def get_tv_series(page: int = 1, limit: int = 20) -> list:
     skip = (page - 1) * limit
     docs = []
-    tv_series_path = yaml_config.get_v('onedrive_tv_series_path')
+    tv_series_path = g_app_config.get('onedrive', 'tv_series_path')
 
     for item_doc in mongodb.item.find({
         'parentReference.path': {

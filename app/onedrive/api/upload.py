@@ -10,7 +10,7 @@ import requests
 from flask_jsonrpc.exceptions import InvalidRequestError
 
 from app import jsonrpc_bp
-from app.config_inst import yaml_config
+from app.app_config_inst import g_app_config
 from app.common import Utils
 from .. import mongodb, MDrive
 
@@ -94,7 +94,7 @@ class UploadThread(threading.Thread):
         self.thread_pool.pop(self.uid)
 
     def run(self):
-        size_mb = yaml_config.get_v('onedrive_upload_chunk_size')
+        size_mb = g_app_config.get('onedrive', 'upload_chunk_size')
         size_mb = round(size_mb / 5) * 5
         size_mb = 5 if size_mb < 5 else size_mb
         size_mb = 60 if size_mb > 60 else size_mb
@@ -241,7 +241,7 @@ class UploadThreadPool(threading.Thread):
         while True:
             with threading.Lock():
                 while len(self.pending) > 0 and len(self.pool) < \
-                        yaml_config.get_v('onedrive_upload_max_threads'):
+                        g_app_config.get('onedrive', 'upload_threads_num'):
                     # 有等待任务并且线程池没有满
                     uid = self.pending.pop(0)
                     if uid not in self.pool.keys():

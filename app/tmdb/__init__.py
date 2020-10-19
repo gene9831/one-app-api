@@ -5,7 +5,7 @@ import re
 from flask_jsonrpc.exceptions import InvalidRequestError
 
 from app import mongo
-from app.config_inst import yaml_config
+from app.app_config_inst import g_app_config
 from .tmdb import TMDb
 
 logger = logging.getLogger(__name__)
@@ -18,15 +18,15 @@ class MyTMDb(TMDb):
         super().__init__()
 
         self.session.params.update(
-            {'language': yaml_config.get_v('tmdb_language'),
+            {'language': g_app_config.get('tmdb', 'language'),
              'include_adult': False})
 
         self.session.headers.update(
-            {'Authorization': yaml_config.get_v('tmdb_bearer_token')})
+            {'Authorization': g_app_config.get('tmdb', 'bearer_token')})
 
+        proxy = g_app_config.get('tmdb', 'proxy')
         self.session.proxies.update(
-            {'http': 'http://' + yaml_config.get_v('tmdb_proxy'),
-             'https': 'https://' + yaml_config.get_v('tmdb_proxy')})
+            {'http': 'http://' + proxy, 'https': 'https://' + proxy})
 
     def movie(self, movie_id, params=None):
         params = {

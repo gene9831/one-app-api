@@ -6,7 +6,7 @@ import uuid
 from flask_jsonrpc.exceptions import JSONRPCError
 
 from app import jsonrpc_bp
-from app.config_inst import yaml_config
+from app.app_config_inst import g_app_config
 from . import mongodb
 
 
@@ -17,10 +17,10 @@ def gen_token():
 
 
 def insert_new_token():
-    auth_token_max_days = 3600 * 24 * yaml_config.get_v('auth_token_max_age')
+    auth_token_max_age = g_app_config.get('admin', 'auth_token_max_age')
     res = {
         'token': gen_token(),
-        'expires_at': time.time() + auth_token_max_days
+        'expires_at': time.time() + 3600 * 24 * auth_token_max_age
     }
     mongodb.token.insert_one(res)
     res.pop('_id', None)
@@ -29,7 +29,7 @@ def insert_new_token():
 
 @jsonrpc_bp.method('Auth.login')
 def auth(password: str) -> dict:
-    if password != yaml_config.get_v('auth_password'):
+    if password != g_app_config.get('admin', 'auth_password'):
         raise JSONRPCError(message='Unauthorized',
                            data={'message': 'Wrong password'})
 
