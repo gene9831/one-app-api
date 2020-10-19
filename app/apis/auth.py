@@ -48,3 +48,9 @@ def validate_token(token: str) -> dict:
                            data={'message': 'Token validation failed'})
     # 返回新token
     return insert_new_token()
+
+
+@jsonrpc_bp.method('Auth.logout', require_auth=True)
+def logout(token: str) -> int:
+    mongodb.token.delete_one({'token': token})
+    return 0
