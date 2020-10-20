@@ -29,6 +29,7 @@ class AppConfigItem:
         self.name = detail.get('name') or ' '.join(
             s.capitalize() for s in key.split('_'))
         self.value = detail.get('value') or ''
+        self.type = str(type(self.value))[8:-2]
         self.description = detail.get('description') or ''
         self.editable = detail.get('editable') is None or detail.get('editable')
         self.sensitive = detail.get('sensitive') or False
