@@ -10,7 +10,7 @@ import requests
 from flask_jsonrpc.exceptions import InvalidRequestError
 
 from app import jsonrpc_bp
-from app.app_config_inst import g_app_config
+from app.app_config import g_app_config
 from app.common import Utils
 from .. import mongodb, MDrive
 

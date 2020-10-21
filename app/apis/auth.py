@@ -6,7 +6,7 @@ import uuid
 from flask_jsonrpc.exceptions import JSONRPCError
 
 from app import jsonrpc_bp
-from app.app_config_inst import g_app_config
+from app.app_config import g_app_config
 from . import mongodb
 
 

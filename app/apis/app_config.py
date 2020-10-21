@@ -4,7 +4,7 @@ from typing import Any, Union
 from flask_jsonrpc.exceptions import JSONRPCError
 
 from app import jsonrpc_bp
-from app.app_config_inst import g_app_config
+from app.app_config import g_app_config
 
 
 @jsonrpc_bp.method('AppConfig.getAll', require_auth=True)
@@ -13,7 +13,7 @@ def get_all() -> dict:
 
 
 @jsonrpc_bp.method('AppConfig.get', require_auth=True)
-def get_value(section: str, key: str) -> Union[str, bool, int, float]:
+def get_value(section: str, key: str) -> Union[str, bool, int, float, None]:
     return g_app_config.get(section, key)
 
 

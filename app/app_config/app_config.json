@@ -20,12 +20,12 @@
     "upload_chunk_size": {
       "name": "上传分片大小(MB)",
       "value": 10,
-      "description": "设置成5的正整数倍才有效，最大60。根据自己的上传速度调节"
+      "description": "5的正整数倍，最大60。根据自己的上传速度调节"
     },
     "upload_threads_num": {
-      "name": "上传线程数",
+      "name": "上传最大线程数",
       "value": 5,
-      "description": ""
+      "description": "正整数"
     }
   },
   "tmdb": {
@@ -36,6 +36,7 @@
   "admin": {
     "auth_password": {
       "name": "后台登录密码",
+      "description": "请在服务器端项目目录下修改 config.ini 中的配置",
       "value": "",
       "editable": false,
       "sensitive": true
@@ -43,7 +44,7 @@
     "auth_token_max_age": {
       "name": "登录有效时长(天)",
       "value": 14,
-      "description": "每登录一次刷新有效时长"
+      "description": "正整数。每登录一次，在手动退出前，指定天数天内不需要再通过密码登录，直接进入后台页面。"
     }
   }
 }

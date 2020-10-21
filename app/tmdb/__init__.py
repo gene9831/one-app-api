@@ -5,7 +5,7 @@ import re
 from flask_jsonrpc.exceptions import InvalidRequestError
 
 from app import mongo
-from app.app_config_inst import g_app_config
+from app.app_config import g_app_config
 from .tmdb import TMDb
 
 logger = logging.getLogger(__name__)

@@ -170,6 +170,3 @@ class AppConfig:
                 section_dict[k] = v.secret(with_key=False)
             res[section] = section_dict
         return res
-
-
-g_app_config = AppConfig()
