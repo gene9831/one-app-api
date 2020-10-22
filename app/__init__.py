@@ -66,4 +66,5 @@ def create_app(config_obj):
     from app.onedrive.api import onedrive_route_bp
     app.register_blueprint(onedrive_route_bp, url_prefix='/od')
 
+    logger.info('App init successfully')
     return app
