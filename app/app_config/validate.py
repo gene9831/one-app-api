@@ -40,6 +40,9 @@ class Validator:
 
         return decorator
 
+    def has_func(self, name):
+        return self.funcs.get(name) is not None
+
     def validate(self, name: str, value: Any) -> bool:
         func = self.funcs.get(name)
         if func is not None:
@@ -59,15 +62,9 @@ def upload_chunk_size(value: int) -> bool:
 
 @validator.register('onedrive.upload_threads_num')
 def upload_threads_num(value: int) -> bool:
-    return 0 < value <= 50
+    return 0 < value <= 30
 
 
 @validator.register('admin.auth_token_max_age')
 def auth_token_max_age(value: int) -> bool:
     return 0 < value <= 30
-
-
-to_do = [-5, 0, 5, 6, 9, 10, 59, 60, 61, 70]
-if __name__ == '__main__':
-    for i in to_do:
-        print(i, validator.validate('onedrive.upload_chunk_size', i))

@@ -6,6 +6,7 @@ import uuid
 from configparser import ConfigParser
 
 from config import Config
+from .validate import validator
 
 DIR_PATH = os.path.dirname(os.path.realpath(__file__))
 APP_CONFIG_JSON_NAME = 'app_config.json'
@@ -122,7 +123,9 @@ class AppConfig:
                     if cfg_value != self.config[section][key].value:
                         self.config[section][key].value = cfg_value
                 except ValueError as e:
-                    logger.error('ValueError: {}. Key: {}'.format(e, key))
+                    logger.error(
+                        'ValueError: {}. Key: {}. '
+                        'Using default value'.format(e, key))
 
     def get(self, section, key):
         config_item = (self.config.get(section) or {}).get(key)
@@ -144,12 +147,21 @@ class AppConfig:
         if key not in self.config[section].keys():
             # Key error
             return -2
-        if not isinstance(value, type(self.config[section][key].value)):
-            # Value error
-            return -3
+
         if self.config[section][key].editable is False:
             # Permission error
+            return -3
+
+        func_name = '{}.{}'.format(section, key)
+        # 有自定义校验，则优先使用自定义校验；没有则只进行普通的类型校验
+        if validator.has_func(func_name):
+            if not validator.validate(func_name, value):
+                # Value error
+                return -4
+        elif not isinstance(value, type(self.config[section][key].value)):
+            # Value error
             return -4
+
         self.config[section][key].value = value
         return 0
 

@@ -27,7 +27,7 @@ def insert_new_token():
     return res
 
 
-@jsonrpc_bp.method('Auth.login')
+@jsonrpc_bp.method('Admin.login')
 def auth(password: str) -> dict:
     if password != g_app_config.get('admin', 'auth_password'):
         raise JSONRPCError(message='Unauthorized',
@@ -36,12 +36,12 @@ def auth(password: str) -> dict:
     return insert_new_token()
 
 
-@jsonrpc_bp.method('Auth.validateToken')
+@jsonrpc_bp.method('Admin.validateToken')
 def validate_token(token: str) -> dict:
     # 删除过期token
     mongodb.token.delete_many({'expires_at': {'$lt': time.time()}})
 
-    # 每验证一次token，让旧token尽失效
+    # 每验证一次token，让旧token失效
     deleted_count = mongodb.token.delete_one({'token': token}).deleted_count
     if deleted_count == 0:
         raise JSONRPCError(message='TokenError',
@@ -50,7 +50,7 @@ def validate_token(token: str) -> dict:
     return insert_new_token()
 
 
-@jsonrpc_bp.method('Auth.logout', require_auth=True)
+@jsonrpc_bp.method('Admin.logout', require_auth=True)
 def logout(token: str) -> int:
     mongodb.token.delete_one({'token': token})
     return 0

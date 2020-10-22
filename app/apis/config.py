@@ -29,12 +29,9 @@ def set_value(section: str, key: str, value: Any) -> int:
         raise JSONRPCError(message='KeyError',
                            data={'message': 'key does not exist'})
     elif res == -3:
-        raise JSONRPCError(
-            message='ValueError',
-            data={'message': 'the type of "{}" should be {}'.format(key, type(
-                g_app_config.get(section, key)))})
-    elif res == -4:
         raise JSONRPCError(message='PermissionError')
+    elif res == -4:
+        raise JSONRPCError(message='ValueError')
     else:
         raise JSONRPCError(message='UnknownError')
 

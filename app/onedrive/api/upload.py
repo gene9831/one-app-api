@@ -95,13 +95,9 @@ class UploadThread(threading.Thread):
 
     def run(self):
         size_mb = g_app_config.get('onedrive', 'upload_chunk_size')
-        size_mb = round(size_mb / 5) * 5
-        size_mb = 5 if size_mb < 5 else size_mb
-        size_mb = 60 if size_mb > 60 else size_mb
-
         chunk_size = 1024 * 1024 * size_mb
-        info = UploadInfo.create_from_mongo(self.uid)
 
+        info = UploadInfo.create_from_mongo(self.uid)
         try:
             info.status = 'running'
             info.commit()
@@ -307,7 +303,7 @@ def upload_file(drive_id: str, upload_path: str, file_path: str) -> int:
 @jsonrpc_bp.method('Onedrive.uploadFolder', require_auth=True)
 def upload_folder(drive_id: str, upload_path: str, folder_path: str) -> int:
     """
-    上传文件夹下的文件，不上传嵌套的文件夹
+    上传文件夹下的所有文件，不包括子文件夹（暂时也不包括小文件）
     :param drive_id:
     :param upload_path: 上传至此目录下，结尾带‘/’
     :param folder_path: 上传此目录下的文件，结尾带'/'

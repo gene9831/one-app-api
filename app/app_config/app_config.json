@@ -25,7 +25,7 @@
     "upload_threads_num": {
       "name": "上传最大线程数",
       "value": 5,
-      "description": "正整数"
+      "description": "正整数，最大30。每一个线程所需内存至少是上传分片的大小"
     }
   },
   "tmdb": {
@@ -35,7 +35,7 @@
   },
   "admin": {
     "auth_password": {
-      "name": "后台登录密码",
+      "name": "登录密码",
       "description": "请在服务器端项目目录下修改 config.ini 中的配置",
       "value": "",
       "editable": false,
@@ -44,7 +44,7 @@
     "auth_token_max_age": {
       "name": "登录有效时长(天)",
       "value": 14,
-      "description": "正整数。每登录一次，在手动退出前，指定天数天内不需要再通过密码登录，直接进入后台页面。"
+      "description": "正整数，最大30。每登录一次，在手动退出前，指定天数天内不需要再通过密码登录"
     }
   }
 }
