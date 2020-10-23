@@ -391,7 +391,7 @@ def upload_status(drive_id: str = None, status: str = None, page: int = 0,
                 },
             }
         },
-        {'$unset': ['drive', 'upload_url', 'drive_id']},
+        {'$unset': ['drive', 'upload_url', 'drive_id', 'user.id']},
         {'$sort': order},
         {'$skip': skip},
         {'$limit': limit},
