@@ -346,37 +346,67 @@ def upload_folder(drive_id: str, upload_path: str, folder_path: str) -> int:
 
 
 @jsonrpc_bp.method('Onedrive.uploadStatus', require_auth=True)
-def upload_status(drive_id: str, param: str = None, page: int = 0,
+def upload_status(drive_id: str = None, status: str = None, page: int = 0,
                   limit: int = 10) -> dict:
     skip = page * limit
-    query = {'drive_id': drive_id}
 
-    if param == 'running':
-        query.update({'$or': [
+    match = {}
+    order = {'_id': 1}
+
+    if drive_id:
+        match.update({'drive_id': drive_id})
+
+    if status == 'running':
+        match.update({'$or': [
             {'status': 'running'},
             {'status': 'pending'}
         ]})
-    elif param == 'stopped':
-        query.update({'$or': [
+        order = {'status': -1, '_id': 1}
+
+    elif status == 'stopped':
+        match.update({'$or': [
             {'status': 'stopped'},
             {'status': 'error'}
         ]})
-    elif param is not None:
-        query.update({'status': param})
+    elif status is not None:
+        match.update({'status': status})
 
-    count = mongodb.upload_info.count_documents(query)
+    pipeline = [
+        {'$match': match},
+        {  # upload_info与drive集合连接
+            '$lookup': {
+                'from': 'drive',
+                'localField': 'drive_id',
+                'foreignField': 'id',
+                'as': 'drive'
+            }
+        },
+        {
+            '$set': {
+                'user': {
+                    '$let': {
+                        'vars': {'drive0': {'$arrayElemAt': ["$drive", 0]}},
+                        'in': '$$drive0.owner.user'
+                    }
+                },
+            }
+        },
+        {'$unset': ['drive', 'upload_url', 'drive_id']},
+        {'$sort': order},
+        {'$skip': skip},
+        {'$limit': limit},
+        {'$unset': '_id'},
+    ]
+
     data = []
 
-    cursor = mongodb.upload_info.find(query)
-    if param == 'running':
-        cursor = cursor.sort([('status', -1)])
-
-    for doc in cursor.skip(skip).limit(limit):
-        doc.pop('_id', None)
-        doc.pop('upload_url', None)
+    for doc in mongodb.upload_info.aggregate(pipeline):
         data.append(doc)
 
-    return {'count': count, 'data': data}
+    return {
+        'count': mongodb.upload_info.count_documents(match),
+        'data': data
+    }
 
 
 @jsonrpc_bp.method('Onedrive.startUpload', require_auth=True)
