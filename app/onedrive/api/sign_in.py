@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import logging
 import threading
+from typing import Union
 
 from app import jsonrpc_bp
 from .. import MDrive, mongodb
@@ -58,10 +59,20 @@ def put_callback_url(url: str) -> dict:
 
 
 @jsonrpc_bp.method('Onedrive.signOut', require_auth=True)
-def sign_out(drive_id: str) -> int:
-    mongodb.drive.delete_one({'id': drive_id})
-    mongodb.drive_cache.delete_one({'id': drive_id})
-    mongodb.item.delete_many({'parentReference.driveId': drive_id})
-    mongodb.item_cache.delete_many({'drive_id': drive_id})
+def sign_out(drive_ids: Union[str, list]) -> int:
+    ids = []
 
-    return 0
+    if isinstance(drive_ids, str):
+        ids.append(drive_ids)
+    elif isinstance(drive_ids, list):
+        ids.extend(drive_ids)
+
+    cnt = 0
+    for drive_id in ids:
+        mongodb.drive.delete_one({'id': drive_id})
+        mongodb.drive_cache.delete_one({'id': drive_id})
+        mongodb.item.delete_many({'parentReference.driveId': drive_id})
+        mongodb.item_cache.delete_many({'drive_id': drive_id})
+        cnt += 1
+
+    return cnt
