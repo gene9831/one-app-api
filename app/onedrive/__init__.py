@@ -37,14 +37,16 @@ class MDrive(Auth, Drive):
 
     def __init__(self, **kwargs):
         self.id = kwargs.get('id')
-        self.had_been_cached = True
+        self.is_new_one = False
         super(MDrive, self).__init__(kwargs.get('token'))
 
     def do_if_token_updated(self):
         super(MDrive, self).do_if_token_updated()
 
         if self.id is None:
-            self.id = self.store_drive()
+            r = self.store_drive()
+            if r.matched_count == 0:
+                self.is_new_one = True
 
         mongodb.drive_cache.update_one({'id': self.id},
                                        {'$set': {'token': self.token}},
@@ -56,14 +58,14 @@ class MDrive(Auth, Drive):
         r = mongodb.drive.update_one({'id': res_json['id']},
                                      {'$set': res_json},
                                      upsert=True)
-        if r.matched_count == 0:
-            self.had_been_cached = False
-        return res_json['id']
+        self.id = res_json['id']
+        return r
 
     def update_items(self):
         # 每个文件上传成功后或者删除后会调用，这里加锁
         counter = CURDCounter()
         with threading.Lock():
+            self.store_drive()
             cache = mongodb.drive_cache.find_one({'id': self.id}) or {}
             delta_link = cache.get('delta_link')
 

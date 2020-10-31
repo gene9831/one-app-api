@@ -2,6 +2,7 @@
 import logging
 import os
 import threading
+from typing import Union
 
 from app import jsonrpc_bp
 from app.common import CURDCounter
@@ -11,12 +12,18 @@ logger = logging.getLogger(__name__)
 
 
 @jsonrpc_bp.method('Onedrive.updateItems', require_auth=True)
-def update_items(drive_id: str = None) -> dict:
+def update_items(drive_ids: Union[str, list] = None) -> dict:
     drives = []
 
-    if drive_id:
-        drives.append(MDrive.create(drive_id))
-    else:
+    if isinstance(drive_ids, str):
+        # 更新单个
+        drives.append(MDrive.create(drive_ids))
+    elif isinstance(drive_ids, list):
+        # 更新多个
+        for drive_id in drive_ids:
+            drives.append(MDrive.create(drive_id))
+    elif isinstance(drive_ids, type(None)):
+        # 全部更新
         for drive in MDrive.authed_drives():
             drives.append(drive)
 
@@ -29,17 +36,18 @@ def update_items(drive_id: str = None) -> dict:
 
 
 @jsonrpc_bp.method('Onedrive.deleteItems', require_auth=True)
-def delete_items(drive_id: str = None) -> dict:
-    drive_ids = []
+def delete_items(drive_ids: Union[str, list]) -> dict:
+    ids = []
 
-    if drive_id:
-        drive_ids.append(drive_id)
-    else:
-        for drive in MDrive.authed_drives():
-            drive_ids.append(drive.id)
+    if isinstance(drive_ids, str):
+        # 删除单个
+        ids.append(drive_ids)
+    elif isinstance(drive_ids, list):
+        # 删除多个
+        ids.extend(drive_ids)
 
     counter = CURDCounter()
-    for drive_id in drive_ids:
+    for drive_id in ids:
         mongodb.drive_cache.update_one({'id': drive_id},
                                        {'$unset': {'delta_link': ''}})
         ct = CURDCounter(deleted=mongodb.item.delete_many(
@@ -48,11 +56,14 @@ def delete_items(drive_id: str = None) -> dict:
         logger.info(
             'drive({}) items deleted: {}'.format(drive_id[:16], ct.detail()))
 
-    if drive_id is None:
-        # clean up
-        mongodb.item.delete_many({})
-
     return counter.json()
+
+
+@jsonrpc_bp.method('Onedrive.fullUpdateItems', require_auth=True)
+def full_update_items(drive_ids: Union[str, list]) -> dict:
+    # 先全部删除缓存的items，再全量更新
+    delete_items(drive_ids)
+    return update_items(drive_ids)
 
 
 @jsonrpc_bp.method('Onedrive.dropAll', require_auth=True)

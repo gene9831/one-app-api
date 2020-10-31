@@ -48,12 +48,12 @@ def put_callback_url(url: str) -> dict:
         # 未知错误
         return {'code': -1, 'message': '未知错误'}
 
-    if drive.had_been_cached:
+    if not drive.is_new_one:
         # 重复登录
         return {'code': 3, 'message': '重复登录'}
 
     threading.Thread(target=drive.update_items).start()
-    logger.info('drive({}) authed'.format(drive.id[:16]))
+    logger.info('drive({}) signed in'.format(drive.id[:16]))
 
     return {'code': 0, 'message': '登录成功'}
 
@@ -73,6 +73,7 @@ def sign_out(drive_ids: Union[str, list]) -> int:
         mongodb.drive_cache.delete_one({'id': drive_id})
         mongodb.item.delete_many({'parentReference.driveId': drive_id})
         mongodb.item_cache.delete_many({'drive_id': drive_id})
+        logger.info('drive({}) signed out'.format(drive_id[:16]))
         cnt += 1
 
     return cnt
