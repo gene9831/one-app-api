@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-from typing import Any, Union
+from typing import Any
 
 from flask_jsonrpc.exceptions import JSONRPCError
 
@@ -10,11 +10,6 @@ from app.app_config import g_app_config
 @jsonrpc_bp.method('AppConfig.getAll', require_auth=True)
 def get_all() -> dict:
     return g_app_config.secret()
-
-
-@jsonrpc_bp.method('AppConfig.get', require_auth=True)
-def get_value(section: str, key: str) -> Union[str, bool, int, float, None]:
-    return g_app_config.get(section, key)
 
 
 @jsonrpc_bp.method('AppConfig.set', require_auth=True)
