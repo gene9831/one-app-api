@@ -6,7 +6,7 @@ mongodb = mongo.db
 
 
 def init():
-    from . import admin, config
+    from . import admin, config, others
 
 
 init()

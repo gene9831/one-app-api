@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import inspect
 import logging
+import os
 from typing import Callable, Any
 
 logger = logging.getLogger(__name__)
@@ -68,3 +69,13 @@ def upload_threads_num(value: int) -> bool:
 @validator.register('admin.auth_token_max_age')
 def auth_token_max_age(value: int) -> bool:
     return 0 < value <= 30
+
+
+@validator.register('others.default_local_path')
+def default_local_path(value: str) -> bool:
+    if not value.endswith('/'):
+        return False
+    path = value
+    if value.startswith('~'):
+        path = os.path.expanduser("~") + path[1:]
+    return os.path.isdir(path)
