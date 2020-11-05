@@ -347,7 +347,7 @@ def upload_folder(drive_id: str, upload_path: str, folder_path: str) -> int:
 
 @jsonrpc_bp.method('Onedrive.upload', require_auth=True)
 def upload(drive_id: str, upload_path: str, local_path: str,
-           type: Literal['file', 'dir']) -> int:
+           type: Literal['file', 'folder']) -> int:
     if type == 'file':
         return upload_file(drive_id, upload_path, local_path)
     return upload_folder(drive_id, upload_path, local_path)
