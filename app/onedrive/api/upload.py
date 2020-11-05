@@ -4,7 +4,7 @@ import os
 import threading
 import time
 import uuid
-from typing import Dict, List
+from typing import Dict, List, Literal
 
 import requests
 from flask_jsonrpc.exceptions import InvalidRequestError
@@ -343,6 +343,14 @@ def upload_folder(drive_id: str, upload_path: str, folder_path: str) -> int:
 
         upload_pool.add_task(uid)
     return 0
+
+
+@jsonrpc_bp.method('Onedrive.upload', require_auth=True)
+def upload(drive_id: str, upload_path: str, local_path: str,
+           type: Literal['file', 'dir']) -> int:
+    if type == 'file':
+        return upload_file(drive_id, upload_path, local_path)
+    return upload_folder(drive_id, upload_path, local_path)
 
 
 @jsonrpc_bp.method('Onedrive.uploadStatus', require_auth=True)
