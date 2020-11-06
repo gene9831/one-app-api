@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import logging
+import math
 import os
 import threading
 import time
@@ -126,6 +127,10 @@ class UploadThread(threading.Thread):
             info.finished = int(res_json['nextExpectedRanges'][0].split('-')[0])
             info.commit()
 
+            # 文件大小小于 chunk_size
+            if info.size < chunk_size:
+                chunk_size = math.floor(info.size / (1024 * 10)) * 1024 * 10
+
             with open(info.file_path, 'rb') as f:
                 f.seek(info.finished, 0)
 
@@ -138,6 +143,10 @@ class UploadThread(threading.Thread):
                     chunk_end = chunk_start + chunk_size - 1
 
                     if chunk_end >= info.size:
+                        left = info.size - chunk_start
+                        # 将10KB作为上传最小单位（官方API最小是320bytes）
+                        # 找一个大于left的值，使它为10KB的正整数倍，且最小
+                        chunk_size = math.ceil(left / (1024 * 10)) * 1024 * 10
                         # 从文件末尾往前 chunk_size 个字节
                         chunk_start = f.seek(-chunk_size, 2)
                         chunk_end = info.size - 1
