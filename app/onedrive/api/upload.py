@@ -99,14 +99,14 @@ class UploadThread(threading.Thread):
 
         info = UploadInfo.create_from_mongo(self.uid)
         try:
-            info.status = 'running'
-            info.commit()
             if not info.upload_url:
                 # 创建上传会话
-                drive = MDrive.create(info.drive_id)
-                with threading.Lock():
+                with MDrive.lock:
                     # 创建上传会话会更新token，可能出现多个线程更新token，加个锁
-                    res_json = drive.create_upload_session(
+                    # 在drive实例创建前加锁，保证token是最新的
+                    # TODO 效率太低
+                    res_json = MDrive.create(
+                        info.drive_id).create_upload_session(
                         info.upload_path + info.filename)
 
                 upload_url = res_json.get('uploadUrl')
@@ -122,6 +122,7 @@ class UploadThread(threading.Thread):
                 # upload_url失效
                 raise Exception(str(res_json))
 
+            info.status = 'running'
             info.finished = int(res_json['nextExpectedRanges'][0].split('-')[0])
             info.commit()
 
@@ -202,17 +203,19 @@ class UploadThreadPool(threading.Thread):
         super().__init__(name='upload-thread-pool', daemon=True)
         self.pool: Dict[str, UploadThread] = {}
         self.pending: List[str] = []
+        self.lock = threading.Lock()
 
     def add_task(self, uid: str):
-        with threading.Lock():
-            if uid not in self.pending:
-                self.pending.append(uid)
-                info = UploadInfo.create_from_mongo(uid)
-                info.status = 'pending'
-                info.commit()
+        with self.lock:
+            if uid in self.pending or uid in self.pool.keys():
+                return
+            self.pending.append(uid)
+            info = UploadInfo.create_from_mongo(uid)
+            info.status = 'pending'
+            info.commit()
 
     def stop_task(self, uid: str):
-        with threading.Lock():
+        with self.lock:
             if uid in self.pending:
                 # 停止等待中的任务
                 self.pending.remove(uid)
@@ -221,7 +224,7 @@ class UploadThreadPool(threading.Thread):
                 self.pool[uid].stop()
 
     def del_task(self, uid: str):
-        with threading.Lock():
+        with self.lock:
             if uid in self.pending:
                 # 删除等待中的任务
                 self.pending.remove(uid)
@@ -230,12 +233,12 @@ class UploadThreadPool(threading.Thread):
                 self.pool[uid].delete()
 
     def pop(self, uid):
-        with threading.Lock():
+        with self.lock:
             self.pool.pop(uid, None)
 
     def run(self):
         while True:
-            with threading.Lock():
+            with self.lock:
                 while len(self.pending) > 0 and len(self.pool) < \
                         g_app_config.get('onedrive', 'upload_threads_num'):
                     # 有等待任务并且线程池没有满

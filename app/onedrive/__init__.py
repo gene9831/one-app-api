@@ -12,6 +12,8 @@ mongodb = mongo.db
 
 
 class MDrive(Auth, Drive):
+    lock = threading.Lock()
+
     @staticmethod
     def create_from_doc(drive_cache):
         """
@@ -64,7 +66,7 @@ class MDrive(Auth, Drive):
     def update_items(self):
         # 每个文件上传成功后或者删除后会调用，这里加锁
         counter = CURDCounter()
-        with threading.Lock():
+        with MDrive.lock:
             self.store_drive()
             cache = mongodb.drive_cache.find_one({'id': self.id}) or {}
             delta_link = cache.get('delta_link')
@@ -114,7 +116,6 @@ def auto_update():
     """
     for drive in MDrive.authed_drives():
         drive.update_items()
-        # threading.Thread(target=drive.update_items).start()
 
     now = datetime.datetime.now()
     mid_night = datetime.datetime(now.year, now.month, now.day, 23, 59, 59)
