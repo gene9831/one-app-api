@@ -6,69 +6,34 @@ from typing import Union
 
 from app import jsonrpc_bp
 from app.common import CURDCounter
-from .. import MDrive, mongodb
+from .. import Drive, mongodb
+from ..graph import drive_api
 
 logger = logging.getLogger(__name__)
 
 
-@jsonrpc_bp.method('Onedrive.updateItems', require_auth=True)
-def update_items(drive_ids: Union[str, list] = None) -> dict:
-    drives = []
-
-    if isinstance(drive_ids, str):
-        # 更新单个
-        drives.append(MDrive.create(drive_ids))
-    elif isinstance(drive_ids, list):
-        # 更新多个
-        for drive_id in drive_ids:
-            drives.append(MDrive.create(drive_id))
-    elif isinstance(drive_ids, type(None)):
-        # 全部更新
-        for drive in MDrive.authed_drives():
-            drives.append(drive)
-
-    counter = CURDCounter()
-    for drive in drives:
-        ct = drive.update_items()
-        counter.merge(ct)
-
-    return counter.json()
-
-
-@jsonrpc_bp.method('Onedrive.deleteItems', require_auth=True)
-def delete_items(drive_ids: Union[str, list]) -> dict:
+@jsonrpc_bp.method('Onedrive.update', require_auth=True)
+def update(drive_ids: Union[str, list], entire=False) -> dict:
     ids = []
 
     if isinstance(drive_ids, str):
-        # 删除单个
         ids.append(drive_ids)
     elif isinstance(drive_ids, list):
-        # 删除多个
         ids.extend(drive_ids)
 
     counter = CURDCounter()
     for drive_id in ids:
-        mongodb.drive_cache.update_one({'id': drive_id},
-                                       {'$unset': {'delta_link': ''}})
-        ct = CURDCounter(deleted=mongodb.item.delete_many(
-            {'parentReference.driveId': drive_id}).deleted_count)
+        if entire:
+            ct = Drive.create_from_id(drive_id).full_update()
+        else:
+            ct = Drive.create_from_id(drive_id).update()
         counter.merge(ct)
-        logger.info(
-            'drive({}) items deleted: {}'.format(drive_id[:16], ct.detail()))
 
     return counter.json()
 
 
-@jsonrpc_bp.method('Onedrive.fullUpdateItems', require_auth=True)
-def full_update_items(drive_ids: Union[str, list]) -> dict:
-    # 先全部删除缓存的items，再全量更新
-    delete_items(drive_ids)
-    return update_items(drive_ids)
-
-
-@jsonrpc_bp.method('Onedrive.dropAll', require_auth=True)
+# @jsonrpc_bp.method('Onedrive.dropAll', require_auth=True)
 def drop_all() -> int:
-    mongodb.auth_temp.drop()
     mongodb.drive.drop()
     mongodb.drive_cache.drop()
     mongodb.item.drop()
@@ -79,8 +44,7 @@ def drop_all() -> int:
 @jsonrpc_bp.method('Onedrive.getDrives', require_auth=True)
 def get_drives() -> list:
     res = []
-    for drive_doc in mongodb.drive.find():
-        drive_doc.pop('_id', None)
+    for drive_doc in mongodb.drive.find({}, {'_id': 0}):
         res.append(drive_doc)
     return res
 
@@ -94,24 +58,22 @@ def show_threads() -> list:
 
 
 @jsonrpc_bp.method('Onedrive.apiTest', require_auth=True)
-def api_test(drive_id: str, method: str, url: str,
-             headers: dict = None, data: dict = None) -> dict:
-    drive = MDrive.create(drive_id)
-    res = drive.request(method, url, data=data, headers=headers)
+def api_test(drive_id: str, method: str, url: str, **kwargs) -> dict:
+    drive = Drive.create_from_id(drive_id)
+    res = drive_api.request(drive.token, method, url, **kwargs)
     return res.json()
 
 
 @jsonrpc_bp.method('Onedrive.listSysPath', require_auth=True)
-def list_sys_path(path, only_dir: bool = False) -> list:
+def list_sys_path(path: str) -> list:
     if not os.path.isdir(path):
         return []
 
     res = []
-    for f_or_l in sorted(os.listdir(path), key=lambda x: x.lower()):
-        if os.path.isdir(os.path.join(path, f_or_l)):
-            res.append({'value': f_or_l, 'type': 'dir'})
-        if not only_dir:
-            if os.path.isfile(os.path.join(path, f_or_l)):
-                res.append({'value': f_or_l, 'type': 'file'})
+    for file_or_dir in sorted(os.listdir(path), key=lambda x: x.lower()):
+        if os.path.isdir(os.path.join(path, file_or_dir)):
+            res.append({'value': file_or_dir, 'type': 'dir'})
+        elif os.path.isfile(os.path.join(path, file_or_dir)):
+            res.append({'value': file_or_dir, 'type': 'file'})
 
     return res

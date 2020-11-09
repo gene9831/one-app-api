@@ -30,87 +30,66 @@ authorize_url = '{0}{1}'.format(settings['authority'],
 token_url = '{0}{1}'.format(settings['authority'], settings['token_endpoint'])
 
 
-class Auth:
+def get_sign_in_url():
+    """
+    Method to generate a sign-in url
+    :return:
+    """
+    aad_auth = OAuth2Session(client_id=settings['app_id'],
+                             scope=settings['scopes'],
+                             redirect_uri=settings['redirect'])
 
-    def __init__(self, token=None):
-        self.token = token
+    sign_in_url, state = aad_auth.authorization_url(authorize_url,
+                                                    prompt='login')
 
-    @staticmethod
-    def get_sign_in_url():
-        """
-        Method to generate a sign-in url
-        :return:
-        """
-        aad_auth = OAuth2Session(client_id=settings['app_id'],
-                                 scope=settings['scopes'],
-                                 redirect_uri=settings['redirect'])
+    return sign_in_url, state
 
-        sign_in_url, state = aad_auth.authorization_url(authorize_url,
-                                                        prompt='login')
 
-        return sign_in_url, state
+def get_token_from_code(callback_url, expected_state):
+    """
+    Method to exchange auth code for access token
+    :param callback_url:
+    :param expected_state:
+    :return:
+    """
+    aad_auth = OAuth2Session(client_id=settings['app_id'],
+                             state=expected_state,
+                             scope=settings['scopes'],
+                             redirect_uri=settings['redirect'])
 
-    def get_token_from_code(self, callback_url, expected_state):
-        """
-        Method to exchange auth code for access token
-        :param callback_url:
-        :param expected_state:
-        :return:
-        """
-        aad_auth = OAuth2Session(client_id=settings['app_id'],
-                                 state=expected_state,
-                                 scope=settings['scopes'],
-                                 redirect_uri=settings['redirect'])
+    token = aad_auth.fetch_token(token_url,
+                                 client_secret=settings['app_secret'],
+                                 authorization_response=callback_url)
 
-        token = None
-        try:
-            token = aad_auth.fetch_token(token_url,
-                                         client_secret=settings['app_secret'],
-                                         authorization_response=callback_url)
-        except OAuth2Error as e:
-            logger.error(e)
+    return token
 
-        # First get token, save it
-        self.token = token
-        self.do_if_token_updated()
+
+def refresh_token(token):
+    if token is None:
+        return None
+
+    # Check expiration
+    now = time.time()
+    # Subtract 5 minutes from expiration to account for clock skew
+    expire_time = token['expires_at'] - 300
+
+    if now < expire_time:
         return token
 
-    def get_token(self):
-        token = self.token
+    # Refresh the token
+    aad_auth = OAuth2Session(client_id=settings['app_id'],
+                             token=token,
+                             scope=settings['scopes'],
+                             redirect_uri=settings['redirect'])
+    refresh_params = {
+        'client_id': settings['app_id'],
+        'client_secret': settings['app_secret'],
+    }
+    new_token = None
+    try:
+        # 如果token超过14天，或者id、secret已失效，会抛出异常
+        new_token = aad_auth.refresh_token(token_url, **refresh_params)
+    except OAuth2Error as e:
+        logger.error(e)
 
-        if token is None:
-            return None
-
-        # Check expiration
-        now = time.time()
-        # Subtract 5 minutes from expiration to account for clock skew
-        expire_time = token['expires_at'] - 300
-        if now >= expire_time:
-            # Refresh the token
-            aad_auth = OAuth2Session(client_id=settings['app_id'],
-                                     token=self.token,
-                                     scope=settings['scopes'],
-                                     redirect_uri=settings['redirect'])
-            refresh_params = {
-                'client_id': settings['app_id'],
-                'client_secret': settings['app_secret'],
-            }
-            token = None
-            try:
-                # TODO 添加尝试次数
-                # 如果token超过14天，或者id、secret已失效，会抛出异常
-                token = aad_auth.refresh_token(token_url, **refresh_params)
-            except OAuth2Error as e:
-                logger.error(e)
-
-            self.token = token
-            self.do_if_token_updated()
-
-        return token
-
-    def do_if_token_updated(self):
-        """
-        重写这个方法来读写数据库
-        :return:
-        """
-        pass
+    return new_token

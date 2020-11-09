@@ -5,7 +5,7 @@ import os
 import threading
 import time
 import uuid
-from typing import Dict, List, Literal
+from typing import Dict, List, Literal, Callable, Any, Tuple
 
 import requests
 from flask_jsonrpc.exceptions import InvalidRequestError
@@ -13,7 +13,8 @@ from flask_jsonrpc.exceptions import InvalidRequestError
 from app import jsonrpc_bp
 from app.app_config import g_app_config
 from app.common import Utils
-from .. import mongodb, MDrive
+from .. import mongodb, Drive
+from ..graph import drive_api
 
 logger = logging.getLogger(__name__)
 
@@ -78,12 +79,13 @@ class UploadInfo:
 
 
 class UploadThread(threading.Thread):
-    def __init__(self, uid, thread_pool):
+    def __init__(self, uid: str):
         super().__init__(name=uid, daemon=True)
         self.uid = uid
-        self.thread_pool = thread_pool
         self.stopped = False
         self.deleted = False
+        self.on_finished_fn = lambda *arg: None
+        self.on_finished_args = ()
 
     def stop(self):
         self.stopped = True
@@ -91,8 +93,9 @@ class UploadThread(threading.Thread):
     def delete(self):
         self.deleted = True
 
-    def pop_from_pool(self):
-        self.thread_pool.pop(self.uid)
+    def on_finished(self, fn: Callable[..., Any], args: Tuple = ()):
+        self.on_finished_fn = fn
+        self.on_finished_args = args
 
     def run(self):
         size_mb = g_app_config.get('onedrive', 'upload_chunk_size')
@@ -102,29 +105,30 @@ class UploadThread(threading.Thread):
         try:
             if not info.upload_url:
                 # 创建上传会话
-                with MDrive.lock:
-                    # 创建上传会话会更新token，可能出现多个线程更新token，加个锁
-                    # 在drive实例创建前加锁，保证token是最新的
-                    # TODO 效率太低
-                    res_json = MDrive.create(
-                        info.drive_id).create_upload_session(
-                        info.upload_path + info.filename)
+                drive = Drive.create_from_id(info.drive_id)
+                resp_json = drive_api.create_upload_session(
+                    drive.token,
+                    info.filename,
+                    info.upload_path + info.filename
+                )
 
-                upload_url = res_json.get('uploadUrl')
+                upload_url = resp_json.get('uploadUrl')
                 if upload_url:
                     info.upload_url = upload_url
                     info.commit()
                 else:
-                    raise Exception(str(res_json))
+                    # 创建上传会话失败
+                    raise Exception(str(resp_json['error']))
             else:
-                res_json = requests.get(info.upload_url).json()
+                resp_json = requests.get(info.upload_url).json()
 
-            if 'nextExpectedRanges' not in res_json.keys():
+            if 'nextExpectedRanges' not in resp_json.keys():
                 # upload_url失效
-                raise Exception(str(res_json))
+                raise Exception(str(resp_json['error']))
 
             info.status = 'running'
-            info.finished = int(res_json['nextExpectedRanges'][0].split('-')[0])
+            info.finished = int(
+                resp_json['nextExpectedRanges'][0].split('-')[0])
             info.commit()
 
             # 文件大小小于 chunk_size
@@ -167,11 +171,12 @@ class UploadThread(threading.Thread):
                                                      data=data)
                             if res.status_code >= 500:
                                 # OneDrive服务器错误，稍后继续尝试
+                                logger.warning(res.text)
                                 res = None
                                 time.sleep(5)
                             elif res.status_code >= 400:
                                 # 文件未找到，因为其他原因被删除
-                                raise Exception(res.text)
+                                raise Exception(str(res.json()['error']))
                             if self.deleted:
                                 return
                         except requests.exceptions.RequestException as e:
@@ -182,8 +187,8 @@ class UploadThread(threading.Thread):
                     info.speed = int(chunk_size / spend_time)
                     info.spend_time += spend_time
 
-                    res_json = res.json()
-                    if 'id' in res_json.keys():
+                    resp_json = res.json()
+                    if 'id' in resp_json.keys():
                         # 上传完成
                         info.finished_date_time = Utils.str_datetime_now()
                         info.status = 'finished'
@@ -194,17 +199,20 @@ class UploadThread(threading.Thread):
                     info.commit()
 
                     if self.stopped:
+                        # stopping -> stopped
+                        info.status = 'stopped'
                         info.speed = 0
                         info.commit()
-                        break
+                        return
         except Exception as e:
             logger.error(e)
             info.status = 'error'
             info.error = str(e)
             info.commit()
         finally:
-            self.pop_from_pool()
-            MDrive.create(info.drive_id).update_items()
+            if info.status == 'finished':
+                Drive.create_from_id(info.drive_id).update()
+            self.on_finished_fn(*self.on_finished_args)
 
 
 class UploadThreadPool(threading.Thread):
@@ -217,29 +225,35 @@ class UploadThreadPool(threading.Thread):
     def add_task(self, uid: str):
         with self.lock:
             if uid in self.pending or uid in self.pool.keys():
-                return
+                return -1
             self.pending.append(uid)
-            info = UploadInfo.create_from_mongo(uid)
-            info.status = 'pending'
-            info.commit()
+            return 0
 
     def stop_task(self, uid: str):
         with self.lock:
+            flag = -1
             if uid in self.pending:
                 # 停止等待中的任务
                 self.pending.remove(uid)
-            if uid in self.pool.keys():
+                flag = 0
+            elif uid in self.pool.keys():
                 # 停止运行中的任务
                 self.pool[uid].stop()
+                flag = 0
+            return flag
 
-    def del_task(self, uid: str):
+    def delete_task(self, uid: str):
         with self.lock:
+            flag = -1
             if uid in self.pending:
                 # 删除等待中的任务
                 self.pending.remove(uid)
-            if uid in self.pool.keys():
+                flag = 0
+            elif uid in self.pool.keys():
                 # 删除运行中的任务
                 self.pool[uid].delete()
+                flag = 0
+            return flag
 
     def pop(self, uid):
         with self.lock:
@@ -252,19 +266,21 @@ class UploadThreadPool(threading.Thread):
                         g_app_config.get('onedrive', 'upload_threads_num'):
                     # 有等待任务并且线程池没有满
                     uid = self.pending.pop(0)
-                    if uid not in self.pool.keys():
-                        thread = UploadThread(uid, self)
-                        # 在这里添加入线程池，而不是在UploadThread start后
-                        # 是为了保持pool同步
-                        self.pool[uid] = thread
-                        thread.start()
+                    thread = UploadThread(uid)
+                    thread.on_finished(self.pop, (uid,))
+                    # 在这里添加入线程池，而不是在UploadThread start后
+                    # 是为了保持pool同步
+                    self.pool[uid] = thread
+                    thread.start()
 
+            # 充分释放锁给其他线程
             time.sleep(1)
 
 
 for init_doc in mongodb.upload_info.find({'$or': [
     {'status': 'running'},
-    {'status': 'pending'}
+    {'status': 'pending'},
+    {'status': 'stopping'}
 ]}):
     mongodb.upload_info.update_one({'uid': init_doc.get('uid')},
                                    {'$set': {'status': 'stopped', 'speed': 0}})
@@ -385,6 +401,7 @@ def upload_status(drive_id: str = None, status: str = None, page: int = 0,
 
     elif status == 'stopped':
         match.update({'$or': [
+            {'status': 'stopping'},
             {'status': 'stopped'},
             {'status': 'error'}
         ]})
@@ -437,10 +454,13 @@ def start_upload(uid: str = None, uids: list = None) -> int:
 
     for uid in uids:
         doc = mongodb.upload_info.find_one({'uid': uid}) or {}
-        if doc.get('status') == 'stopped' or doc.get('status') == 'error':
+        status = doc.get('status')
+        if status == 'stopped' or status == 'error':
+            mongodb.upload_info.update_one({'uid': uid},
+                                           {'$set': {'status': 'pending'}})
             upload_pool.add_task(uid)
 
-    return 0  # 启动成功
+    return 0
 
 
 @jsonrpc_bp.method('Onedrive.stopUpload', require_auth=True)
@@ -450,10 +470,12 @@ def stop_upload(uid: str = None, uids: list = None) -> int:
         uids.append(uid)
 
     for uid in uids:
-        upload_pool.stop_task(uid)
-        mongodb.upload_info.update_one(
-            {'uid': uid, '$or': [{'status': 'running'}, {'status': 'pending'}]},
-            {'$set': {'status': 'stopped'}})
+        doc = mongodb.upload_info.find_one({'uid': uid}) or {}
+        status = doc.get('status')
+        if status == 'running' or status == 'pending':
+            mongodb.upload_info.update_one({'uid': uid},
+                                           {'$set': {'status': 'stopping'}})
+            upload_pool.stop_task(uid)
 
     return 0
 
@@ -467,14 +489,15 @@ def delete_upload(uid: str = None, uids: list = None) -> int:
     to_be_deleted = []
 
     for uid in uids:
-        upload_pool.del_task(uid)
+        upload_pool.delete_task(uid)
+        doc = mongodb.upload_info.find_one({'uid': uid},
+                                           {'upload_url': 1}) or {}
+        upload_url = doc.get('upload_url')
+        if upload_url:
+            to_be_deleted.append(upload_url)
+        mongodb.upload_info.delete_one({'uid': uid})
 
-        doc = mongodb.upload_info.find_one({'uid': uid})
-        if doc:
-            to_be_deleted.append(doc.get('upload_url'))
-            mongodb.upload_info.delete_one({'uid': uid})
-
-    threading.Thread(name='DeleteUrls', target=delete_urls,
+    threading.Thread(name='delete-urls', target=delete_urls,
                      args=(to_be_deleted,)).start()
 
     return 0
