@@ -49,6 +49,14 @@ def get_drives() -> list:
     return res
 
 
+@jsonrpc_bp.method('Onedrive.getDriveIds')
+def get_drive_ids() -> list:
+    res = []
+    for drive_doc in mongodb.drive.find({}, {'id': 1}):
+        res.append(drive_doc.get('id'))
+    return res
+
+
 @jsonrpc_bp.method('Onedrive.showThreads', require_auth=True)
 def show_threads() -> list:
     res = []
