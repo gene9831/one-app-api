@@ -64,7 +64,7 @@ def create_app(config_obj):
     jsonrpc.register_blueprint(app, jsonrpc_bp, url_prefix='/')
 
     from app.onedrive.api import onedrive_route_bp
-    app.register_blueprint(onedrive_route_bp, url_prefix='/od')
+    app.register_blueprint(onedrive_route_bp, url_prefix='/file')
 
     logger.info('App init successfully')
     return app
