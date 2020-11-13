@@ -50,7 +50,7 @@ def list_drive_path(drive_id: str, path: str) -> list:
     for item in mongodb.item.find(query):
         d = {
             'value': item.get('name') or 'null',
-            'type': 'file' if 'file' in item.keys() else 'dir'
+            'type': 'file' if 'file' in item.keys() else 'folder'
         }
         res.append(d)
 

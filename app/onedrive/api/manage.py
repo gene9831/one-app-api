@@ -72,6 +72,13 @@ def api_test(drive_id: str, method: str, url: str, **kwargs) -> dict:
     return res.json()
 
 
+def get_child_count(path: str) -> int:
+    try:
+        return len(os.listdir(path))
+    except PermissionError:
+        return -1
+
+
 @jsonrpc_bp.method('Onedrive.listSysPath', require_auth=True)
 def list_sys_path(path: str) -> list:
     if not os.path.isdir(path):
@@ -79,9 +86,18 @@ def list_sys_path(path: str) -> list:
 
     res = []
     for file_or_dir in sorted(os.listdir(path), key=lambda x: x.lower()):
-        if os.path.isdir(os.path.join(path, file_or_dir)):
-            res.append({'value': file_or_dir, 'type': 'dir'})
-        elif os.path.isfile(os.path.join(path, file_or_dir)):
-            res.append({'value': file_or_dir, 'type': 'file'})
+        p = os.path.join(path, file_or_dir)
+        if os.path.isdir(p):
+            res.append({
+                'value': file_or_dir,
+                'type': 'folder',
+                'childCount': get_child_count(p)
+            })
+        elif os.path.isfile(p):
+            res.append({
+                'value': file_or_dir,
+                'type': 'file',
+                'size': os.path.getsize(p)
+            })
 
     return res
