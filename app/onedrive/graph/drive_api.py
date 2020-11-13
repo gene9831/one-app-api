@@ -9,6 +9,7 @@ from requests_oauthlib import OAuth2Session
 class Method(Enum):
     GET = 'GET'
     POST = 'POST'
+    PUT = 'PUT'
     DELETE = 'DELETE'
 
 
@@ -50,6 +51,11 @@ def content_url(token: dict, item_id: str) -> str:
 
     res = request(token, Method.GET, url, allow_redirects=False)
     return res.headers.get('Location')
+
+
+def put_content(token: dict, item_path: str, data: bytes) -> dict:
+    url = '{}/root:{}:/content'.format(base_url, item_path)
+    return request(token, Method.PUT, url, data=data).json()
 
 
 def create_upload_session(token: dict, name: str, item_path: str) -> dict:

@@ -103,6 +103,32 @@ class UploadThread(threading.Thread):
 
         info = UploadInfo.create_from_mongo(self.uid)
         try:
+            # 直接上传，最大为4MB
+            if info.size <= 4 * 1024 * 1024:
+                start = time.time()
+                info.status = 'running'
+                info.commit()
+
+                drive = Drive.create_from_id(info.drive_id)
+                with open(info.file_path, 'rb') as f:
+                    resp_json = drive_api.put_content(
+                        drive.token,
+                        info.upload_path + info.filename,
+                        f.read()
+                    )
+
+                if 'id' in resp_json.keys():
+                    info.spend_time = time.time() - start
+                    info.speed = int(info.size / info.spend_time)
+                    info.finished_date_time = Utils.str_datetime_now()
+                    info.status = 'finished'
+                    info.finished = info.size
+                    info.commit()
+                    logger.info('uploaded: {}'.format(info.filename))
+                else:
+                    raise Exception(str(resp_json['error']))
+                return
+
             if not info.upload_url:
                 # 创建上传会话
                 drive = Drive.create_from_id(info.drive_id)
@@ -309,7 +335,7 @@ def upload_file(drive_id: str, upload_path: str, file_path: str) -> int:
             data={'message': 'File({}) not found.'.format(file_path)})
 
     file_size = os.path.getsize(file_path)
-    if file_size <= 5 * 1024 * 1024:
+    if file_size <= 0:
         return -1
 
     _, filename = os.path.split(file_path)
@@ -356,7 +382,7 @@ def upload_folder(drive_id: str, upload_path: str, folder_path: str) -> int:
             continue
 
         file_size = os.path.getsize(file_path)
-        if file_size <= 5 * 1024 * 1024:
+        if file_size <= 0:
             continue
 
         uid = str(uuid.uuid4())
