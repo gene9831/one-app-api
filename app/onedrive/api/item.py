@@ -29,7 +29,7 @@ def get_items_by_path(drive_id: str, path: str, page: int = 1,
     docs = []
     for item in mongodb.item.find(query, {
         '_id': 0, 'id': 1, 'name': 1, 'file': 1, 'folder': 1,
-        'lastModifiedDateTime': 1, 'size': 1, 'parentReference': 1
+        'lastModifiedDateTime': 1, 'size': 1
     }).skip(skip).limit(limit):
         docs.append(item)
     return docs
@@ -111,7 +111,7 @@ def get_item_content_url(item_id: str) -> str:
 
 @onedrive_route_bp.route('/<item_id>/<name>', methods=['GET'])
 def item_content(item_id, name):
-    if mongodb.item.find_one({'id': item_id, 'name': name}) is None:
+    if mongodb.item.find_one({'id': item_id, 'name': name}, {'_id': 1}) is None:
         abort(404)
     content_url = get_item_content_url(item_id)
     return redirect(content_url)
