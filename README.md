@@ -1,16 +1,31 @@
-# One Movie
+# One App API
 
-no description yet
+将 Onedrive 数据缓存到本地
 
-## [OneDrive API](./app/onedrive/README.md)
+## 环境
 
-- [先决条件](./app/onedrive/README.md#先决条件)
-- [用户验证](./app/onedrive/README.md#用户验证)
-- [Item](./app/onedrive/README.md#Item)
-- [Drive](./app/onedrive/README.md#Drive)
+- `python` >= 3.8
+- `mongodb`
 
-## [TMDB API](./app/tmdb/README.md)
+## 步骤
 
-- [先决条件](./app/tmdb/README.md#先决条件)
-- [电影数据](./app/tmdb/README.md#电影数据)
-- [配置](./app/tmdb/README.md#配置)
+安装
+
+```bash
+pip3 install -r requirements.txt
+```
+
+安装 `docker-mongo` (可选)
+
+- [安装和设置步骤](./docker-mongo.md)
+- 修改 `config.py` 中的 `MONGO_URI` 来正确连接 `mongodb` 服务
+
+`gunicorn` 部署
+
+```bash
+gunicorn --threads 3 -b 127.0.0.1:5000 run:app
+```
+
+## 其他
+
+后台管理密码会随机生成，项目目录下的 `config.ini`。修改后重启应用生效
