@@ -4,8 +4,8 @@ from flask import redirect, abort
 from flask_jsonrpc.exceptions import InvalidRequestError
 
 from app import jsonrpc_bp
-from app.app_config import g_app_config
 from . import onedrive_route_bp
+from .manage import get_settings
 from .. import mongodb, Drive
 from ..graph import drive_api
 
@@ -17,7 +17,7 @@ def get_items_by_path(drive_id: str, path: str, page: int = 1,
                       limit: int = 20, query: dict = None) -> list:
     query = query or {}
     skip = (page - 1) * limit
-    root_path = onedrive_root_path + g_app_config.get('onedrive', 'root_path')
+    root_path = onedrive_root_path + get_settings(drive_id)['root_path']
     if root_path.endswith('/'):
         root_path = root_path[:-1]
 
@@ -58,11 +58,12 @@ def list_drive_path(drive_id: str, path: str) -> list:
 
 
 @jsonrpc_bp.method('Onedrive.getMovies')
-def get_movies(page: int = 1, limit: int = 20) -> list:
+def get_movies(drive_id: str, page: int = 1, limit: int = 20) -> list:
     skip = (page - 1) * limit
     docs = []
-    movies_path = g_app_config.get('onedrive', 'movies_path')
+    movies_path = get_settings(drive_id)['movies_path']
 
+    # TODO 不直接判断 mimeType
     for item_doc in mongodb.item.find({
         'parentReference.path': {
             '$regex': '^{}{}'.format(onedrive_root_path, movies_path)},
@@ -74,11 +75,12 @@ def get_movies(page: int = 1, limit: int = 20) -> list:
 
 
 @jsonrpc_bp.method('Onedrive.getTVSeries')
-def get_tv_series(page: int = 1, limit: int = 20) -> list:
+def get_tv_series(drive_id: str, page: int = 1, limit: int = 20) -> list:
     skip = (page - 1) * limit
     docs = []
-    tv_series_path = g_app_config.get('onedrive', 'tv_series_path')
+    tv_series_path = get_settings(drive_id)['tv_series_path']
 
+    # TODO 不直接判断 mimeType
     for item_doc in mongodb.item.find({
         'parentReference.path': {
             '$regex': '^{}{}'.format(onedrive_root_path, tv_series_path)},

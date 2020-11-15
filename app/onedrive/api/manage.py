@@ -4,6 +4,8 @@ import os
 import threading
 from typing import Union
 
+from flask_jsonrpc.exceptions import InvalidRequestError
+
 from app import jsonrpc_bp
 from app.common import CURDCounter
 from .. import Drive, mongodb
@@ -52,7 +54,7 @@ def get_drives() -> list:
 @jsonrpc_bp.method('Onedrive.getDriveIds')
 def get_drive_ids() -> list:
     res = []
-    for drive_doc in mongodb.drive.find({}, {'id': 1}):
+    for drive_doc in mongodb.drive_cache.find({'public': True}, {'id': 1}):
         res.append(drive_doc.get('id'))
     return res
 
@@ -101,3 +103,46 @@ def list_sys_path(path: str) -> list:
             })
 
     return res
+
+
+default_settings = {
+    'root_path': '/',
+    'movies_path': '/Movies',
+    'tv_series_path': '/TV-Series',
+    'public': False
+}
+
+
+@jsonrpc_bp.method('Onedrive.getSettings', require_auth=True)
+def get_settings(drive_id: str) -> dict:
+    doc = mongodb.drive_cache.find_one(
+        {'id': drive_id},
+        {'_id': 0, 'root_path': 1, 'movies_path': 1, 'tv_series_path': 1,
+         'public': 1}
+    )
+    if doc is None:
+        raise InvalidRequestError(message='Cannot find drive')
+    doc['root_path'] = doc.get('root_path') or default_settings['root_path']
+    doc['movies_path'] = doc.get('movies_path') or default_settings[
+        'movies_path']
+    doc['tv_series_path'] = doc.get('tv_series_path') or default_settings[
+        'tv_series_path']
+    doc['public'] = doc.get('public') or default_settings['public']
+    return doc
+
+
+@jsonrpc_bp.method('Onedrive.modifySettings', require_auth=True)
+def modify_settings(drive_id: str, name: str,
+                    value: Union[str, bool, int]) -> int:
+    if name not in default_settings.keys():
+        raise InvalidRequestError(message='Wrong settings name')
+
+    new_value = value
+    if name.endswith('_path'):
+        if not new_value.endswith('/'):
+            new_value += '/'
+    r = mongodb.drive_cache.update_one({'id': drive_id},
+                                       {'$set': {name: new_value}})
+    if r.matched_count == 0:
+        return -1
+    return 0
