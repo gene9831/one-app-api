@@ -25,38 +25,37 @@ class MyTMDb(TMDb):
             {'Authorization': g_app_config.get('tmdb', 'bearer_token')})
 
         proxy = g_app_config.get('tmdb', 'proxy')
-        self.session.proxies.update(
-            {'http': 'http://' + proxy, 'https': 'https://' + proxy})
+        if len(proxy) > 0:
+            self.session.proxies.update(
+                {'http': 'http://' + proxy, 'https': 'http://' + proxy})
 
     def movie(self, movie_id, params=None):
         params = {
             'append_to_response': 'images',
             'include_image_language': 'en,null',  # 海报和背景图的地区没有国内的，因为国内的广告实在太多了
         }
-        res_json = super().movie(movie_id, params=params)
-        if 'id' not in res_json.keys():
-            raise InvalidRequestError(
-                data={'message': res_json.get('status_message')})
-        return res_json
+        resp_json = super().movie(movie_id, params=params)
+        if 'id' not in resp_json.keys():
+            raise InvalidRequestError(message=resp_json.get('status_message'))
+        return resp_json
 
     def search_movie_id(self, filename):
         name, year = self.parse_movie_name(filename)
 
         if name is None:
-            raise InvalidRequestError(data={'message': 'Invalid filename'})
+            raise InvalidRequestError(message='Invalid filename')
 
-        res_json = self.search(name, year)
+        resp_json = self.search(name, year)
 
-        if 'total_results' not in res_json.keys():
-            if 'errors' in res_json.keys():
-                raise InvalidRequestError(data={'message': res_json['errors']})
-            raise InvalidRequestError(
-                data={'message': res_json.get('status_message')})
+        if 'total_results' not in resp_json.keys():
+            if 'errors' in resp_json.keys():
+                raise InvalidRequestError(message=resp_json['errors'])
+            raise InvalidRequestError(message=resp_json.get('status_message'))
 
-        if res_json['total_results'] < 1:
-            raise InvalidRequestError(data={'message': 'Total results: 0'})
+        if resp_json['total_results'] < 1:
+            raise InvalidRequestError(message='Total results: 0')
 
-        return res_json['results'][0]['id']
+        return resp_json['results'][0]['id']
 
     @staticmethod
     def parse_movie_name(s):
