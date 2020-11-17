@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from typing import Union
 
 from flask import redirect, abort
 from flask_jsonrpc.exceptions import InvalidRequestError
@@ -14,7 +15,8 @@ onedrive_root_path = '/drive/root:'
 
 @jsonrpc_bp.method('Onedrive.getItemsByPath')
 def get_items_by_path(drive_id: str, path: str, page: int = 1,
-                      limit: int = 20, query: dict = None) -> list:
+                      limit: int = 20, query: dict = None,
+                      pwd: str = None) -> Union[list, int]:
     query = query or {}
     skip = (page - 1) * limit
     root_path = onedrive_root_path + get_settings(drive_id)['root_path']
@@ -31,6 +33,16 @@ def get_items_by_path(drive_id: str, path: str, page: int = 1,
         '_id': 0, 'id': 1, 'name': 1, 'file': 1, 'folder': 1,
         'lastModifiedDateTime': 1, 'size': 1
     }).skip(skip).limit(limit):
+        if item['name'].startswith('.pwd'):
+            if pwd is None:
+                # 需要密码
+                return 401
+            if pwd != item['name'].replace('.pwd=', ''):
+                # 密码错误
+                raise InvalidRequestError(message='Wrong password')
+        if item['name'].startswith('.'):
+            # 不显示以.开头的文件
+            continue
         docs.append(item)
     return docs
 
