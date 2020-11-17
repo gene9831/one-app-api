@@ -5,13 +5,12 @@ from flask_jsonrpc.exceptions import InvalidRequestError
 from app import jsonrpc_bp
 from . import mongodb, MyTMDb
 
-output = {
+project = {
     '_id': 0,
     'id': 1,
     'genres': 1,
-    'images': 1,
-    'images.backdrops': {'$slice': 1},
-    'images.posters': {'$slice': 3},
+    'images.backdrops': {'$slice': ["$images.backdrops", 3]},
+    "images.posters": {'$slice': ["$images.posters", 3]},
     'original_language': 1,
     'original_title': 1,
     'overview': 1,
@@ -48,13 +47,26 @@ def get_data_by_item_id(item_id: str) -> dict:
                                       {'$set': {'tmdb_id': tmdb_id}},
                                       upsert=True)
 
-    doc = mongodb.tmdb.find_one({'id': tmdb_id}, output)
+    doc = None
+    for d in mongodb.tmdb.aggregate(pipeline=[
+        {'$match': {'id': tmdb_id}},
+        {'$project': project}
+    ]):
+        doc = d
+        break
+
     if doc is None:
         # 查找 tmdb 文档
         resp_json = instance.movie(tmdb_id)
         mongodb.tmdb.update_one({'id': tmdb_id},
                                 {'$set': resp_json},
                                 upsert=True)
-        return {key: resp_json[key] for key in resp_json.keys() & output}
+
+        for d in mongodb.tmdb.aggregate(pipeline=[
+            {'$match': {'id': tmdb_id}},
+            {'$project': project}
+        ]):
+            doc = d
+            break
 
     return doc
