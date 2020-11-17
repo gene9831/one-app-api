@@ -21,8 +21,7 @@ project = {
 }
 
 
-# TODO 这个没必要写个api，后台更新即可，顶多加个手动更新api
-@jsonrpc_bp.method('TMDb.getDataByItemId', require_auth=True)
+@jsonrpc_bp.method('TMDb.getDataByItemId')
 def get_data_by_item_id(item_id: str) -> dict:
     cache = mongodb.item_cache.find_one({'id': item_id}) or {}
     tmdb_id = cache.get('tmdb_id')
