@@ -7,7 +7,7 @@ from typing import Union
 from flask_jsonrpc.exceptions import InvalidRequestError
 
 from app import jsonrpc_bp
-from app.common import CURDCounter
+from app.common import CURDCounter, Utils
 from .. import Drive, mongodb
 from ..graph import drive_api
 
@@ -82,7 +82,15 @@ def get_child_count(path: str) -> int:
 
 
 @jsonrpc_bp.method('Onedrive.listSysPath', require_auth=True)
-def list_sys_path(path: str) -> list:
+def list_sys_path(path: str) -> Union[list, int]:
+    """
+    path 是目录，返回列表；path 是文件，返回 0
+    :param path:
+    :return:
+    """
+    if os.path.isfile(path):
+        return 0
+
     if not os.path.isdir(path):
         return []
 
@@ -122,12 +130,10 @@ def get_settings(drive_id: str) -> dict:
     )
     if doc is None:
         raise InvalidRequestError(message='Cannot find drive')
-    doc['root_path'] = doc.get('root_path') or default_settings['root_path']
-    doc['movies_path'] = doc.get('movies_path') or default_settings[
-        'movies_path']
-    doc['tv_series_path'] = doc.get('tv_series_path') or default_settings[
-        'tv_series_path']
-    doc['public'] = doc.get('public') or default_settings['public']
+
+    for k, v in default_settings.items():
+        doc[k] = doc.get(k) or v
+
     return doc
 
 
@@ -139,10 +145,43 @@ def modify_settings(drive_id: str, name: str,
 
     new_value = value
     if name.endswith('_path'):
-        if not new_value.endswith('/'):
-            new_value += '/'
+        # 根目录 '/', 其他目录以'/'开头，结尾不带'/'
+        new_value = Utils.path_with_slash(new_value)
     r = mongodb.drive_cache.update_one({'id': drive_id},
                                        {'$set': {name: new_value}})
     if r.matched_count == 0:
         return -1
     return 0
+
+
+@jsonrpc_bp.method('Onedrive.cleanItemCacheTMDbId', require_auth=True)
+def clean_item_cache(drive_ids: Union[list, str]) -> int:
+    ids = []
+
+    if isinstance(drive_ids, str):
+        ids.append(drive_ids)
+    elif isinstance(drive_ids, list):
+        ids.extend(drive_ids)
+
+    res = 0
+    for drive_id in ids:
+        res += mongodb.item_cache.delete_many(
+            {'drive_id': drive_id, 'tmdb_id': {'$exists': True}}
+        ).deleted_count
+    return res
+
+
+@jsonrpc_bp.method('Onedrive.cleanItemCache', require_auth=True)
+def clean_item_cache(drive_ids: Union[list, str]) -> int:
+    ids = []
+
+    if isinstance(drive_ids, str):
+        ids.append(drive_ids)
+    elif isinstance(drive_ids, list):
+        ids.extend(drive_ids)
+
+    res = 0
+    for drive_id in ids:
+        res += mongodb.item_cache.delete_many(
+            {'drive_id': drive_id}).deleted_count
+    return res
