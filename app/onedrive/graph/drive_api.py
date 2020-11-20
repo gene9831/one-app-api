@@ -39,9 +39,12 @@ def item(token: dict, item_id: str) -> dict:
     return request(token, Method.GET, url).json()
 
 
-def create_link(token: dict, item_id: str) -> dict:
+def create_link(token: dict, item_id: str,
+                expiration_date_time: str = None) -> dict:
     url = '{}/{}/createLink'.format(items_url, item_id)
     data = {'type': 'view', 'scope': 'anonymous'}
+    if expiration_date_time:
+        data['expirationDateTime'] = expiration_date_time
 
     return request(token, Method.POST, url, json=data).json()
 
