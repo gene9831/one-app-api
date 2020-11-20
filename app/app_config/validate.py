@@ -73,8 +73,6 @@ def auth_token_max_age(value: int) -> bool:
 
 @validator.register('others.default_local_path')
 def default_local_path(value: str) -> bool:
-    if not value.endswith('/'):
-        return False
     path = value
     if value.startswith('~'):
         path = os.path.expanduser("~") + path[1:]

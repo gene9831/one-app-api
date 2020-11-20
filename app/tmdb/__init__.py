@@ -43,7 +43,7 @@ class MyTMDb(TMDb):
         name, year = self.parse_movie_name(filename)
 
         if name is None:
-            raise InvalidRequestError(message='Invalid filename')
+            return None
 
         resp_json = self.search(name, year)
 
@@ -53,7 +53,7 @@ class MyTMDb(TMDb):
             raise InvalidRequestError(message=resp_json.get('status_message'))
 
         if resp_json['total_results'] < 1:
-            raise InvalidRequestError(message='Total results: 0')
+            return None
 
         return resp_json['results'][0]['id']
 

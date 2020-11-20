@@ -331,8 +331,7 @@ def upload_file(drive_id: str, upload_path: str, file_path: str) -> int:
         upload_path = upload_path + '/'
 
     if os.path.isfile(file_path) is False:
-        raise InvalidRequestError(
-            data={'message': 'File({}) not found.'.format(file_path)})
+        raise InvalidRequestError(message='File not found.')
 
     file_size = os.path.getsize(file_path)
     if file_size <= 0:
@@ -357,7 +356,7 @@ def upload_file(drive_id: str, upload_path: str, file_path: str) -> int:
 @jsonrpc_bp.method('Onedrive.uploadFolder', require_auth=True)
 def upload_folder(drive_id: str, upload_path: str, folder_path: str) -> int:
     """
-    上传文件夹下的所有文件，不包括子文件夹（暂时也不包括小文件）
+    上传文件夹下的所有文件，不包括子文件夹
     :param drive_id:
     :param upload_path: 上传至此目录下，结尾带‘/’
     :param folder_path: 上传此目录下的文件，结尾带'/'
@@ -372,8 +371,7 @@ def upload_folder(drive_id: str, upload_path: str, folder_path: str) -> int:
         folder_path = folder_path + '/'
 
     if os.path.isdir(folder_path) is False:
-        raise InvalidRequestError(
-            data={'message': 'Folder({}) not found.'.format(folder_path)})
+        raise InvalidRequestError(message='Folder not found.')
 
     _, folder_name = os.path.split(folder_path[:-1])
     for file in sorted(os.listdir(folder_path), key=lambda x: x.lower()):

@@ -3,6 +3,7 @@
 from flask import Blueprint
 
 onedrive_route_bp = Blueprint('onedrive_route', __name__)
+onedrive_root_path = '/drive/root:'
 
 
 def init():
