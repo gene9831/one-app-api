@@ -154,23 +154,6 @@ def modify_settings(drive_id: str, name: str,
     return 0
 
 
-@jsonrpc_bp.method('Onedrive.cleanItemCacheTMDbId', require_auth=True)
-def clean_item_cache(drive_ids: Union[list, str]) -> int:
-    ids = []
-
-    if isinstance(drive_ids, str):
-        ids.append(drive_ids)
-    elif isinstance(drive_ids, list):
-        ids.extend(drive_ids)
-
-    res = 0
-    for drive_id in ids:
-        res += mongodb.item_cache.delete_many(
-            {'drive_id': drive_id, 'tmdb_id': {'$exists': True}}
-        ).deleted_count
-    return res
-
-
 @jsonrpc_bp.method('Onedrive.cleanItemCache', require_auth=True)
 def clean_item_cache(drive_ids: Union[list, str]) -> int:
     ids = []

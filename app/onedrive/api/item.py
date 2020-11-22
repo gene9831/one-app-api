@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 import datetime
 import os
-import time
 from typing import Union
 
 from flask import redirect, abort
@@ -13,8 +12,6 @@ from .manage import get_settings
 from .. import mongodb, Drive
 from ..graph import drive_api
 from ...common import Utils
-
-TZ_FORMAT = '%Y-%m-%dT%H:%M:%SZ'
 
 
 @jsonrpc_bp.method('Onedrive.getItemsByPath')
@@ -64,11 +61,11 @@ def get_items_by_path(drive_id: str, path: str, page: int = 1,
             continue
         if is_movies_path:
             from app.tmdb.api import get_movie_data_by_item_id
-            tmdb_info = get_movie_data_by_item_id(
+            movie_info = get_movie_data_by_item_id(
                 item['id'], {'_id': 0, 'id': 1, 'title': 1})
-            if tmdb_info is not None:
-                item['tmdb_info'] = tmdb_info
-                item['tmdb_info']['type'] = 'movie'
+            if movie_info is not None:
+                movie_info['type'] = 'movie'
+                item['tmdbInfo'] = movie_info
         docs.append(item)
     return docs
 
@@ -115,40 +112,6 @@ def list_drive_path(drive_id: str, path: str) -> Union[list, int]:
     return sorted(res, key=lambda x: x['value'].upper())
 
 
-# @jsonrpc_bp.method('Onedrive.getMovies')
-# def get_movies(drive_id: str, page: int = 1, limit: int = 20) -> list:
-#     skip = (page - 1) * limit
-#     docs = []
-#     movies_path = get_settings(drive_id)['movies_path']
-#
-#     # TODO 不直接判断 mimeType
-#     for item_doc in mongodb.item.find({
-#         'parentReference.path': {
-#             '$regex': '^{}{}'.format(onedrive_root_path, movies_path)},
-#         'file.mimeType': {'$regex': '^video'}
-#     }, {'_id': 0}).skip(skip).limit(limit):
-#         docs.append(item_doc)
-#
-#     return docs
-#
-#
-# @jsonrpc_bp.method('Onedrive.getTVSeries')
-# def get_tv_series(drive_id: str, page: int = 1, limit: int = 20) -> list:
-#     skip = (page - 1) * limit
-#     docs = []
-#     tv_series_path = get_settings(drive_id)['tv_series_path']
-#
-#     # TODO 不直接判断 mimeType
-#     for item_doc in mongodb.item.find({
-#         'parentReference.path': {
-#             '$regex': '^{}{}'.format(onedrive_root_path, tv_series_path)},
-#         'file.mimeType': {'$regex': '^video'}
-#     }, {'_id': 0}).skip(skip).limit(limit):
-#         docs.append(item_doc)
-#
-#     return docs
-
-
 @jsonrpc_bp.method('Onedrive.getItem')
 def get_item(item_id: str) -> dict:
     doc = mongodb.item.find_one({'id': item_id}, {'_id': 0})
@@ -166,7 +129,7 @@ def get_item_content_url(item_id: str, item: dict = None) -> str:
         raise InvalidRequestError(message='You cannot get content for a folder')
 
     if item_doc['size'] > 50 * 1024 * 1024:
-        raise InvalidRequestError(message='Large files use shared link')
+        raise InvalidRequestError(message='Large file uses shared link')
 
     drive = Drive.create_from_id(item_doc['parentReference']['driveId'])
     return drive_api.content_url(drive.token, item_id)
@@ -194,8 +157,7 @@ def get_item_shared_link(item_id: str, item: dict = None) -> Union[str, None]:
         {
             'id': item_id,
             'create_link.expirationDateTime': {
-                '$gt': (datetime.datetime.utcnow() + datetime.timedelta(
-                    days=1)).strftime(TZ_FORMAT)
+                '$gt': Utils.utc_datetime(timedelta=datetime.timedelta(days=1))
             }
         },
         {'create_link': 1}
@@ -230,8 +192,7 @@ def create_item_shared_link(item_id: str) -> str:
 
     drive_id = item_doc['parentReference']['driveId']
     drive = Drive.create_from_id(drive_id)
-    next_4_days = (datetime.datetime.utcnow() + datetime.timedelta(
-        days=4)).strftime(TZ_FORMAT)
+    next_4_days = Utils.utc_datetime(timedelta=datetime.timedelta(days=4))
     resp_json = drive_api.create_link(drive.token, item_id, next_4_days)
 
     mongodb.item_cache.update_one({'id': item_id},

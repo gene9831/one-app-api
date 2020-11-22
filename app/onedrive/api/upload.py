@@ -120,7 +120,7 @@ class UploadThread(threading.Thread):
                 if 'id' in resp_json.keys():
                     info.spend_time = time.time() - start
                     info.speed = int(info.size / info.spend_time)
-                    info.finished_date_time = Utils.str_datetime_now()
+                    info.finished_date_time = Utils.str_datetime()
                     info.status = 'finished'
                     info.finished = info.size
                     info.commit()
@@ -216,7 +216,7 @@ class UploadThread(threading.Thread):
                     resp_json = res.json()
                     if 'id' in resp_json.keys():
                         # 上传完成
-                        info.finished_date_time = Utils.str_datetime_now()
+                        info.finished_date_time = Utils.str_datetime()
                         info.status = 'finished'
                         info.commit()
                         logger.info('uploaded: {}'.format(info.filename))
@@ -345,7 +345,7 @@ def upload_file(drive_id: str, upload_path: str, file_path: str) -> int:
                              file_path=file_path,
                              upload_path=upload_path,
                              size=file_size,
-                             created_date_time=Utils.str_datetime_now())
+                             created_date_time=Utils.str_datetime())
     mongodb.upload_info.insert_one(upload_info.json())
 
     upload_pool.add_task(uid)
@@ -390,7 +390,7 @@ def upload_folder(drive_id: str, upload_path: str, folder_path: str) -> int:
                                  file_path=file_path,
                                  upload_path=upload_path + folder_name + '/',
                                  size=file_size,
-                                 created_date_time=Utils.str_datetime_now())
+                                 created_date_time=Utils.str_datetime())
         mongodb.upload_info.insert_one(upload_info.json())
 
         upload_pool.add_task(uid)
