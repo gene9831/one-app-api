@@ -29,10 +29,19 @@ class CURDCounter:
 
 class Utils:
     DEFAULT_DATETIME_FMT = '%Y-%m-%d %H:%M:%S'
+    TZ_FORMAT = '%Y-%m-%dT%H:%M:%SZ'
 
     @staticmethod
-    def str_datetime_now(fmt: str = DEFAULT_DATETIME_FMT) -> str:
-        return datetime.datetime.now().strftime(fmt)
+    def str_datetime(fmt: str = DEFAULT_DATETIME_FMT, timedelta=None) -> str:
+        if timedelta is None:
+            timedelta = datetime.timedelta()
+        return (datetime.datetime.now() + timedelta).strftime(fmt)
+
+    @staticmethod
+    def utc_datetime(fmt: str = TZ_FORMAT, timedelta=None) -> str:
+        if timedelta is None:
+            timedelta = datetime.timedelta()
+        return (datetime.datetime.utcnow() + timedelta).strftime(fmt)
 
     @staticmethod
     def path_with_slash(path: str, start=True, end=False, root=True):
