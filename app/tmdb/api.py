@@ -212,3 +212,26 @@ def get_movies(projection: dict = None, sort: dict = None, page: int = 1,
         res.append(doc)
 
     return res
+
+
+item_projection = {
+    '_id': 0, 'id': 1, 'name': 1, 'file': 1, 'folder': 1,
+    'lastModifiedDateTime': 1, 'size': 1
+}
+
+
+@jsonrpc_bp.method('TMDb.getItemsByMovieId')
+def get_items_by_movie_id(movie_id: int) -> list:
+    res = []
+    for item_cache in mongodb.item_cache.find({'movie_id': movie_id},
+                                              {'id': 1}):
+        item = mongodb.item.find_one({'id': item_cache['id']},
+                                     item_projection)
+        if 'file' in item.keys():
+            res.append(item)
+        if 'folder' in item.keys():
+            for itm in mongodb.item.find({'parentReference.id': item['id']},
+                                         item_projection):
+                res.append(itm)
+
+    return res
