@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+import datetime
+import functools
 import logging
 from typing import Union
 
@@ -29,83 +31,62 @@ default_projection = {
 @jsonrpc_bp.method('TMDb.getMovieDataByItemId')
 def get_movie_data_by_item_id(
         item_id: str,
-        projection=None
+        projection: dict = None
 ) -> Union[dict, None]:
     if projection is None:
         projection = default_projection
-    doc = None
     for item in mongodb.item_cache.aggregate([
         {'$match': {'id': item_id}},
         {
             '$lookup': {
-                'from': 'tmdb',
-                'localField': 'tmdb_id',
+                'from': 'tmdb_movies',
+                'localField': 'movie_id',
                 'foreignField': 'id',
-                'as': 'tmdb'
+                'as': 'tmdb_movies'
             }
         },
-        {'$unwind': '$tmdb'},
-        {'$replaceRoot': {'newRoot': '$tmdb'}},
+        {'$unwind': '$tmdb_movies'},
+        {'$replaceRoot': {'newRoot': '$tmdb_movies'}},
         {'$project': projection}
     ]):
         return item
-    return doc
+    return None
 
 
-@jsonrpc_bp.method('TMDb.getDataByTMDbId')
-def get_data_by_tmdb_id(tmdb_id: int) -> dict:
-    doc = mongodb.tmdb.find_one({'id': tmdb_id}, default_projection)
-    if doc is None:
-        raise InvalidRequestError(message='Invalid TMDb id')
-    return doc
+iso_639_1_dict = {
+    'en': 100,
+    'zh': 99,
+    'xx': -1,
+}
 
 
-def update_movie_data_by_item(item: dict) -> int:
-    """
-    更新指定item的tmdb电影信息
-    :param item:
-    :return: 0: 未更新；1：已更新；-1：无匹配
-    """
-    drive_id = item['parentReference']['driveId']
-    # 如果是文件且是视频，则用文件名去匹配tmdb信息
-    # 如果是文件夹并且子项有视频，则用文件夹的名字去匹配tmdb信息
-    if 'file' in item.keys():
-        if not item['file']['mimeType'].startswith('video'):
-            return -1
-    if 'folder' in item.keys():
-        if mongodb.item.count_documents({
-            'parentReference.driveId': drive_id,
-            'parentReference.id': item['id'],
-            'file.mimeType': {'$regex': '^video'}
-        }) == 0:
-            return -1
+def get_iso_639_1_value(k):
+    if k in iso_639_1_dict.keys():
+        return iso_639_1_dict[k]
+    return 0
 
-    cache = mongodb.item_cache.find_one({'id': item['id']}) or {}
-    tmdb_id = cache.get('tmdb_id')
 
-    instance = MyTMDb()
-
-    if tmdb_id is None:
-        tmdb_id = instance.search_movie_id(item['name'])
-        if tmdb_id is None:
-            # 匹配不到tmdb信息
-            return -1
-        mongodb.item_cache.update_one(
-            {'id': item['id']},
-            {'$set': {'tmdb_id': tmdb_id, 'drive_id': drive_id}},
-            upsert=True)
-
-    if mongodb.tmdb.count_documents({'id': tmdb_id}) == 0:
-        # 查找 tmdb 文档
-        resp_json = instance.movie(tmdb_id)
-        mongodb.tmdb.insert_one(resp_json)
+def cmp_number_to_int(a, b):
+    if a < b:
+        return -1
+    if a > b:
         return 1
     return 0
 
 
+def cmp(a, b):
+    res = cmp_number_to_int(a['vote_average'], b['vote_average'])
+    if res == 0:
+        return cmp_number_to_int(
+            get_iso_639_1_value(a['iso_639_1']),
+            get_iso_639_1_value(b['iso_639_1'])
+        )
+        pass
+    return res
+
+
 @jsonrpc_bp.method('TMDb.updateMovies', require_auth=True)
 def update_movies(drive_ids: Union[str, list]) -> int:
-    # TODO 加一个更新时间，超过多久再次更新
     from app.onedrive.api.manage import get_settings
     from app.onedrive.api import onedrive_root_path
 
@@ -117,15 +98,117 @@ def update_movies(drive_ids: Union[str, list]) -> int:
         ids.extend(drive_ids)
 
     res = 0
+    three_month_ago = Utils.str_datetime(fmt='%Y-%m-%d',
+                                         timedelta=datetime.timedelta(days=-90))
+    seven_days_ago = Utils.utc_datetime(timedelta=datetime.timedelta(-7))
+
     for drive_id in ids:
         movies_path = get_settings(drive_id)['movies_path']
 
         for item in mongodb.item.find({
             'parentReference.driveId': drive_id,
-            'parentReference.path': Utils.path_join(onedrive_root_path,
-                                                    movies_path)
+            'parentReference.path': Utils.path_join(
+                onedrive_root_path, movies_path)
         }):
-            if update_movie_data_by_item(item) > 0:
+            # 如果是文件且是视频，则用文件名去匹配tmdb信息
+            # 如果是文件夹并且子项有视频，则用文件夹的名字去匹配tmdb信息
+            if 'file' in item.keys():
+                if not item['file']['mimeType'].startswith('video'):
+                    continue
+            if 'folder' in item.keys():
+                if mongodb.item.count_documents({
+                    'parentReference.id': item['id'],
+                    'file.mimeType': {'$regex': '^video'}
+                }) == 0:
+                    continue
+
+            doc = mongodb.item_cache.find_one({'id': item['id']}) or {}
+            movie_id = doc.get('movie_id')
+
+            instance = MyTMDb()
+
+            if movie_id is None:
+                movie_id = instance.search_movie_id(item['name'])
+                if movie_id is None:
+                    # 匹配不到tmdb信息
+                    continue
+                mongodb.item_cache.update_one(
+                    {'id': item['id']},
+                    {'$set': {'movie_id': movie_id, 'drive_id': drive_id}},
+                    upsert=True)
+
+            if mongodb.tmdb_movies.count_documents({
+                'id': movie_id,
+                '$or': [
+                    # release_data 小于当前日期减3个月（也就是说不是最近上映的）
+                    {'release_date': {'$lt': three_month_ago}},
+                    # 最近上映的，7天更新一次数据
+                    {'lastUpdateTime': {'$gt': seven_days_ago}}
+                ]
+            }) == 0:
+                # 查找 tmdb_movie 文档
+                resp_json = instance.movie(movie_id)
+                posters = resp_json['images']['posters']
+                resp_json['images']['posters'] = sorted(
+                    posters,
+                    key=functools.cmp_to_key(cmp),
+                    reverse=True
+                )
+                mongodb.tmdb_movies.update_one(
+                    {'id': resp_json['id']},
+                    {
+                        '$set': {
+                            **resp_json,
+                            'lastUpdateTime': Utils.utc_datetime()
+                        }
+                    },
+                    upsert=True)
                 res += 1
+
     logger.info('update {} movies'.format(res))
+    return res
+
+
+@jsonrpc_bp.method('TMDb.removeMovies', require_auth=True)
+def remove_movies() -> int:
+    r = mongodb.tmdb_movies.delete_many({})
+    return r.deleted_count
+
+
+@jsonrpc_bp.method('TMDb.getMovie')
+def get_movie(movie_id: int) -> dict:
+    doc = mongodb.tmdb_movies.find_one({'id': movie_id}, default_projection)
+    if doc is None:
+        raise InvalidRequestError(message='Invalid movie id')
+    return doc
+
+
+get_movies_projection = {
+    **default_projection,
+    'poster': '$poster.file_path',
+}
+get_movies_projection.pop('overview', None)
+get_movies_projection.pop('runtime', None)
+get_movies_projection.pop('images.backdrops', None)
+get_movies_projection.pop('images.posters', None)
+
+
+@jsonrpc_bp.method('TMDb.getMovies')
+def get_movies(projection: dict = None, sort: dict = None, page: int = 1,
+               limit: int = 20) -> list:
+    if projection is None:
+        projection = get_movies_projection
+    if sort is None:
+        sort = {'release_date': -1}
+    res = []
+    skip = (page - 1) * limit
+    for doc in mongodb.tmdb_movies.aggregate([
+        {'$set': {'poster': {'$arrayElemAt': ['$images.posters', 0]}}},
+        {'$project': projection},
+        {'$sort': sort},
+        {'$skip': skip},
+        {'$limit': limit}
+    ]):
+        res.append(doc)
+
     return res
