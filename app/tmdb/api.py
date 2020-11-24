@@ -227,6 +227,10 @@ def get_items_by_movie_id(movie_id: int) -> list:
                                               {'id': 1}):
         item = mongodb.item.find_one({'id': item_cache['id']},
                                      item_projection)
+        if item is None:
+            # 当前item_cache已失效
+            mongodb.item_cache.delete_one({'id': item_cache['id']})
+            continue
         if 'file' in item.keys():
             res.append(item)
         if 'folder' in item.keys():
