@@ -58,7 +58,7 @@ def show_threads() -> list:
     return res
 
 
-@jsonrpc_bp.method('Onedrive.apiTest', require_auth=True)
+# @jsonrpc_bp.method('Onedrive.apiTest', require_auth=True)
 def api_test(drive_id: str, method: str, url: str, **kwargs) -> dict:
     drive = Drive.create_from_id(drive_id)
     res = drive_api.request(drive.token, method, url, **kwargs)
