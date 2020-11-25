@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 import datetime
 import os
-from typing import Union
+from typing import Union, Literal
 
 from flask import redirect, abort
 from flask_jsonrpc.exceptions import InvalidRequestError
@@ -13,61 +13,128 @@ from .. import mongodb, Drive
 from ..graph import drive_api
 from ...common import Utils
 
+get_items_projection = {
+    '_id': 0, 'id': 1, 'name': 1, 'file': 1, 'folder': 1,
+    'lastModifiedDateTime': 1, 'size': 1, 'movie_id': 1, 'tv_series_id': 1,
+}
+
 
 @jsonrpc_bp.method('Onedrive.getItemsByPath')
-def get_items_by_path(drive_id: str, path: str, page: int = 1,
-                      limit: int = 20, query: dict = None,
-                      pwd: str = None) -> Union[list, int]:
+def get_items_by_path(
+        drive_id: str, path: str, skip: int = 0, limit: int = 20,
+        query: dict = None, order: Literal['asc', 'desc'] = 'asc',
+        order_by: Literal['name', 'lastModifiedDateTime'] = 'name'
+) -> dict:
     """
     文件夹移动或者重命名后，使用 deltaLink 更新，不会更新文件夹的子项的数据。
     也就是说使用本方查找重命名过的文件夹的子项的结果是空的，全量更新后没有问题。
     :param drive_id:
     :param path:
-    :param page:
+    :param skip:
     :param limit:
     :param query:
-    :param pwd:
+    :param order:
+    :param order_by:
     :return:
     """
     query = query or {}
-    skip = (page - 1) * limit
 
-    path_settings = get_settings(drive_id)
-    path = Utils.path_join(path_settings['root_path'], path, root=False)
+    settings = get_settings(drive_id)
+    path = Utils.path_join(settings['root_path'], path, root=False)
 
-    query.update({
-        'parentReference.driveId': drive_id,
-        'parentReference.path': onedrive_root_path + path
-    })
+    if path == settings['movies_path']:
+        return get_movies(
+            drive_id,
+            onedrive_root_path + path,
+            query=query,
+            skip=skip,
+            limit=limit,
+            order=order,
+            order_by=order_by
+        )
 
-    is_movies_path = False
-    if path == path_settings['movies_path']:
-        is_movies_path = True
+    if path == settings['tv_series_path']:
+        pass
 
-    docs = []
-    for item in mongodb.item.find(query, {
-        '_id': 0, 'id': 1, 'name': 1, 'file': 1, 'folder': 1,
-        'lastModifiedDateTime': 1, 'size': 1
-    }).skip(skip).limit(limit):
-        if item['name'].startswith('.pwd'):
-            if pwd is None:
-                # 需要密码
-                return 401
-            if pwd != item['name'].replace('.pwd=', ''):
-                # 密码错误
-                raise InvalidRequestError(message='Wrong password')
-        if item['name'].startswith('.'):
-            # 不显示以.开头的文件
-            continue
-        if is_movies_path:
-            from app.tmdb.api import get_movie_data_by_item_id
-            movie_info = get_movie_data_by_item_id(
-                item['id'], {'_id': 0, 'id': 1, 'title': 1})
-            if movie_info is not None:
-                movie_info['type'] = 'movie'
-                item['tmdbInfo'] = movie_info
-        docs.append(item)
-    return docs
+    for result in mongodb.item.aggregate([
+        {'$match': {
+            **query,
+            'parentReference.driveId': drive_id,
+            'parentReference.path': onedrive_root_path + path
+        }},
+        {'$project': get_items_projection},
+        {'$facet': {
+            'count': [{'$count': 'count'}],
+            'list': [
+                {'$sort': {order_by: 1 if order == 'asc' else -1}},
+                {'$skip': skip},
+                {'$limit': limit}
+            ]
+        }},
+        {'$set': {'count': {'$let': {
+            'vars': {'firstElem': {'$arrayElemAt': ['$count', 0]}},
+            'in': '$$firstElem.count'
+        }}}},
+        {'$set': {'count': {'$ifNull': ['$count', {'$toInt': 0}]}}}
+    ]):
+        return result
+
+    return {'count': 0, 'list': []}
+
+
+def get_movies(
+        drive_id: str,
+        movies_path: str,
+        query: dict = None,
+        skip: int = 0,
+        limit: int = 20,
+        order: Literal['asc', 'desc'] = 'asc',
+        order_by: Literal['name', 'lastModifiedDateTime'] = 'name'
+) -> dict:
+    if query is None:
+        query = {}
+
+    for result in mongodb.item.aggregate([
+        {'$match': {
+            'parentReference.driveId': drive_id,
+            'parentReference.path': movies_path
+        }},
+        {'$project': get_items_projection},
+        {'$lookup': {
+            'from': 'tmdb_movies',
+            'localField': 'movie_id',
+            'foreignField': 'id',
+            'as': 'tmdb_movies1'
+        }},
+        {'$unwind': '$tmdb_movies1'},
+        {'$set': {'tmdb_movies': {
+            'id': '$tmdb_movies1.id',
+            'title': '$tmdb_movies1.title',
+            'poster': {'$let': {
+                'vars': {'poster': {
+                    '$arrayElemAt': ['$tmdb_movies1.images.posters', 0]}},
+                'in': '$$poster.file_path'
+            }}
+        }}},
+        {'$unset': 'tmdb_movies1'},
+        {'$set': {'name': '$tmdb_movies.title'}},
+        {'$match': query},
+        {'$facet': {
+            'count': [{'$count': 'count'}],
+            'list': [
+                {'$sort': {order_by: 1 if order == 'asc' else -1}},
+                {'$skip': skip},
+                {'$limit': limit}
+            ]
+        }},
+        {'$set': {'count': {'$let': {
+            'vars': {'firstElem': {'$arrayElemAt': ['$count', 0]}},
+            'in': '$$firstElem.count'
+        }}}},
+        {'$set': {'count': {'$ifNull': ['$count', {'$toInt': 0}]}}}
+    ]):
+        return result
+    return {'count': 0, 'list': []}
 
 
 @jsonrpc_bp.method('Onedrive.listDrivePath', require_auth=True)
@@ -153,16 +220,13 @@ def get_item_shared_link(item_id: str, item: dict = None) -> Union[str, None]:
     if 'folder' in item_doc.keys():
         raise InvalidRequestError(message='You cannot get link for a folder')
 
-    cache = mongodb.item_cache.find_one(
-        {
-            'id': item_id,
-            'create_link.expirationDateTime': {
-                '$gt': Utils.utc_datetime(timedelta=datetime.timedelta(days=1))
-            }
-        },
-        {'create_link': 1}
-    ) or {}
-    create_link = (cache or {}).get('create_link')
+    create_link = item_doc.get('create_link')
+
+    if create_link is not None:
+        expiration_date_time = create_link.get('expirationDateTime') or ''
+        if expiration_date_time < Utils.utc_datetime(
+                timedelta=datetime.timedelta(days=1)):
+            create_link = None
 
     if create_link is None:
         return None
@@ -195,12 +259,8 @@ def create_item_shared_link(item_id: str) -> str:
     next_4_days = Utils.utc_datetime(timedelta=datetime.timedelta(days=4))
     resp_json = drive_api.create_link(drive.token, item_id, next_4_days)
 
-    mongodb.item_cache.update_one({'id': item_id},
-                                  {'$set': {
-                                      'drive_id': drive_id,
-                                      'create_link': resp_json
-                                  }},
-                                  upsert=True)
+    mongodb.item.update_one({'id': item_id},
+                            {'$set': {'create_link': resp_json}})
 
     base_down_url = get_base_down_url(drive_id, item_id)
     web_url = resp_json['link']['webUrl']
@@ -214,19 +274,17 @@ def create_item_shared_link(item_id: str) -> str:
 
 @jsonrpc_bp.method('Onedrive.deleteItemSharedLink', require_auth=True)
 def delete_item_shared_link(item_id: str) -> int:
-    cache = mongodb.item_cache.find_one({'id': item_id},
-                                        {'create_link': 1}) or {}
-    if cache.get('create_link') is None:
+    item_doc = get_item(item_id)
+    if item_doc.get('create_link') is None:
         return -1
 
-    item_doc = get_item(item_id)
     drive = Drive.create_from_id(item_doc['parentReference']['driveId'])
     drive_api.delete_permissions(drive.token,
                                  item_id,
-                                 cache['create_link']['id'])
+                                 item_doc['create_link']['id'])
 
-    mongodb.item_cache.update_one({'id': item_id},
-                                  {'$unset': {'create_link': ''}})
+    mongodb.item.update_one({'id': item_id},
+                            {'$unset': {'create_link': ''}})
     return 0
 
 
@@ -236,8 +294,8 @@ def get_base_down_url(drive_id, item_id):
     :param item_id: 任意一个有效的 item_id
     :return:
     """
-    cache = mongodb.drive_cache.find_one({'id': drive_id}, {'base_down_url': 1})
-    base_down_url = cache.get('base_down_url')
+    drive_doc = mongodb.drive.find_one({'id': drive_id}, {'base_down_url': 1})
+    base_down_url = drive_doc.get('base_down_url')
 
     if base_down_url:
         return base_down_url
@@ -246,6 +304,6 @@ def get_base_down_url(drive_id, item_id):
     tmp_url = drive_api.content_url(drive.token, item_id)
     symbol = 'download.aspx?'
     base_down_url = tmp_url[:tmp_url.find(symbol) + len(symbol)] + 'share='
-    mongodb.drive_cache.update_one({'id': drive.id},
-                                   {'$set': {'base_down_url': base_down_url}})
+    mongodb.drive.update_one({'id': drive.id},
+                             {'$set': {'base_down_url': base_down_url}})
     return base_down_url

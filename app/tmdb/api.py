@@ -35,7 +35,7 @@ def get_movie_data_by_item_id(
 ) -> Union[dict, None]:
     if projection is None:
         projection = default_projection
-    for item in mongodb.item_cache.aggregate([
+    for item in mongodb.item.aggregate([
         {'$match': {'id': item_id}},
         {
             '$lookup': {
@@ -122,20 +122,17 @@ def update_movies(drive_ids: Union[str, list]) -> int:
                 }) == 0:
                     continue
 
-            doc = mongodb.item_cache.find_one({'id': item['id']}) or {}
-            movie_id = doc.get('movie_id')
-
             instance = MyTMDb()
-
+            movie_id = item.get('movie_id')
             if movie_id is None:
                 movie_id = instance.search_movie_id(item['name'])
                 if movie_id is None:
                     # 匹配不到tmdb信息
                     continue
-                mongodb.item_cache.update_one(
+                mongodb.item.update_one(
                     {'id': item['id']},
-                    {'$set': {'movie_id': movie_id, 'drive_id': drive_id}},
-                    upsert=True)
+                    {'$set': {'movie_id': movie_id}}
+                )
 
             if mongodb.tmdb_movies.count_documents({
                 'id': movie_id,
@@ -194,14 +191,13 @@ get_movies_projection.pop('images.posters', None)
 
 
 @jsonrpc_bp.method('TMDb.getMovies')
-def get_movies(projection: dict = None, sort: dict = None, page: int = 1,
+def get_movies(projection: dict = None, sort: dict = None, skip: int = 0,
                limit: int = 20) -> list:
     if projection is None:
         projection = get_movies_projection
     if sort is None:
         sort = {'release_date': -1}
     res = []
-    skip = (page - 1) * limit
     for doc in mongodb.tmdb_movies.aggregate([
         {'$set': {'poster': {'$arrayElemAt': ['$images.posters', 0]}}},
         {'$project': projection},
@@ -223,17 +219,10 @@ item_projection = {
 @jsonrpc_bp.method('TMDb.getItemsByMovieId')
 def get_items_by_movie_id(movie_id: int) -> list:
     res = []
-    for item_cache in mongodb.item_cache.find({'movie_id': movie_id},
-                                              {'id': 1}):
-        item = mongodb.item.find_one({'id': item_cache['id']},
-                                     item_projection)
-        if item is None:
-            # 当前item_cache已失效
-            mongodb.item_cache.delete_one({'id': item_cache['id']})
-            continue
+    for item in mongodb.item.find({'movie_id': movie_id}, item_projection):
         if 'file' in item.keys():
             res.append(item)
-        if 'folder' in item.keys():
+        elif 'folder' in item.keys():
             for itm in mongodb.item.find({'parentReference.id': item['id']},
                                          item_projection):
                 res.append(itm)

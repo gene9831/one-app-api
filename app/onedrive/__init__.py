@@ -25,7 +25,7 @@ class Drive:
 
     @staticmethod
     def all_drive_ids():
-        for doc in mongodb.drive_cache.find({}, {'id': 1}):
+        for doc in mongodb.drive.find({}, {'id': 1}):
             yield doc['id']
 
     def __init__(self, **kwargs):
@@ -55,8 +55,7 @@ class Drive:
             if self._token:
                 token = self._token
             else:
-                doc = mongodb.drive_cache.find_one({'id': self.id},
-                                                   {'token': 1})
+                doc = mongodb.drive.find_one({'id': self.id}, {'token': 1})
                 token = (doc or {}).get('token')
 
             # TODO new_token 为 None 时怎么处理
@@ -65,8 +64,8 @@ class Drive:
             if new_token != token:
                 # updated
                 self._token = new_token
-                mongodb.drive_cache.update_one({'id': self.id},
-                                               {'$set': {'token': new_token}})
+                mongodb.drive.update_one({'id': self.id},
+                                         {'$set': {'token': new_token}})
                 logger.info(
                     'drive({}) token updated'.format(self.user['email']))
             return new_token
@@ -91,19 +90,16 @@ class Drive:
         self._id = drive_json['id']
         self._user = drive_json['owner']['user']
 
-        res = mongodb.drive.update_one({'id': self.id},
-                                       {'$set': drive_json},
-                                       upsert=True)
+        res = mongodb.drive.update_one(
+            {'id': self.id},
+            {'$set': {**drive_json, 'token': self.token}},
+            upsert=True
+        )
         logger.info('drive({}) stored'.format(self.user['email']))
-
-        mongodb.drive_cache.update_one({'id': self.id},
-                                       {'$set': {'token': self.token}},
-                                       upsert=True)
-        logger.info('drive({}) token stored'.format(self.user['email']))
 
         return res
 
-    def update(self, exclude_drive=False):
+    def update(self, exclude_drive=False, full_update=False):
         with self.update_lock:
             # 任务上传成功后或者删除后会调用，这里加锁
             counter = CURDCounter()
@@ -116,9 +112,20 @@ class Drive:
                 logger.info('drive({}) updated'.format(self.user['email']))
 
             # update items
-            cache = mongodb.drive_cache.find_one({'id': self.id},
-                                                 {'delta_link': 1}) or {}
-            delta_link = cache.get('delta_link')
+            delta_link = None
+            if full_update:
+                # 先将原有id全部保存，然后每更新一个item，就删除item_temp里对应的id，
+                # 最后剩余的id就是已经无效的了
+                mongodb.item_temp.delete_many({})
+                for item in mongodb.item.find(
+                        {'parentReference.driveId': self.id},
+                        {'id': 1}
+                ):
+                    mongodb.item_temp.insert_one({'id': item['id']})
+            else:
+                drive_doc = mongodb.drive.find_one({'id': self.id},
+                                                   {'delta_link': 1})
+                delta_link = drive_doc.get('delta_link')
 
             for resp_json in drive_api.delta(self.token, delta_link):
                 if '@odata.deltaLink' in resp_json.keys():
@@ -132,9 +139,8 @@ class Drive:
                     if 'deleted' in item.keys() and item['deleted'].get(
                             'state') == 'deleted':
                         # 删
-                        counter.deleted += mongodb.item.delete_one({
-                            'id': item['id'],
-                            'parentReference.driveId': self.id
+                        counter.deleted += mongodb.item.delete_many({
+                            'id': item['id']
                         }).deleted_count
                     else:
                         # 增、改
@@ -147,26 +153,29 @@ class Drive:
                         else:
                             counter.added += 1
 
-            mongodb.drive_cache.update_one({'id': self.id},
-                                           {'$set': {'delta_link': delta_link}})
+                        if full_update:
+                            # 每更新一个item，就删除item_temp里对应的id
+                            mongodb.item_temp.delete_many({'id': item['id']})
+
+            mongodb.drive.update_one({'id': self.id},
+                                     {'$set': {'delta_link': delta_link}})
+
+            if full_update:
+                # 剩余的id就是已经无效的了，删除它
+                for item in mongodb.item_temp.find():
+                    mongodb.item.delete_many({'id': item['id']})
+                    counter.deleted += 1
 
             logger.info(
                 'drive({}) items updated: {}'.format(self.user['email'],
                                                      counter.detail()))
             return counter
 
-    def full_update(self):
-        mongodb.drive_cache.update_one({'id': self.id},
-                                       {'$unset': {'delta_link': ''}})
-        mongodb.item.delete_many({'parentReference.driveId': self.id})
-        return self.update()
-
     def remove(self):
-        logger.info('drive({}) removed'.format(self.user['email']))
-        mongodb.drive.delete_one({'id': self.id})
-        mongodb.drive_cache.delete_one({'id': self.id})
+        email = self.user['email']
+        mongodb.drive.delete_many({'id': self.id})
         mongodb.item.delete_many({'parentReference.driveId': self.id})
-        mongodb.item_cache.delete_many({'drive_id': self.id})
+        logger.info('drive({}) removed'.format(email))
 
 
 def auto_update():

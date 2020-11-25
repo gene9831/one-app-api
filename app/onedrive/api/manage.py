@@ -26,21 +26,12 @@ def update(drive_ids: Union[str, list], entire=False) -> dict:
     counter = CURDCounter()
     for drive_id in ids:
         if entire:
-            ct = Drive.create_from_id(drive_id).full_update()
+            ct = Drive.create_from_id(drive_id).update(full_update=True)
         else:
             ct = Drive.create_from_id(drive_id).update()
         counter.merge(ct)
 
     return counter.json()
-
-
-# @jsonrpc_bp.method('Onedrive.dropAll', require_auth=True)
-def drop_all() -> int:
-    mongodb.drive.drop()
-    mongodb.drive_cache.drop()
-    mongodb.item.drop()
-    mongodb.item_cache.drop()
-    return 0
 
 
 @jsonrpc_bp.method('Onedrive.getDrives', require_auth=True)
@@ -54,7 +45,7 @@ def get_drives() -> list:
 @jsonrpc_bp.method('Onedrive.getDriveIds')
 def get_drive_ids() -> list:
     res = []
-    for drive_doc in mongodb.drive_cache.find({'public': True}, {'id': 1}):
+    for drive_doc in mongodb.drive.find({'settings.public': True}, {'id': 1}):
         res.append(drive_doc.get('id'))
     return res
 
@@ -123,18 +114,15 @@ default_settings = {
 
 @jsonrpc_bp.method('Onedrive.getSettings', require_auth=True)
 def get_settings(drive_id: str) -> dict:
-    doc = mongodb.drive_cache.find_one(
-        {'id': drive_id},
-        {'_id': 0, 'root_path': 1, 'movies_path': 1, 'tv_series_path': 1,
-         'public': 1}
-    )
+    doc = mongodb.drive.find_one({'id': drive_id}, {'_id': 0, 'settings': 1})
     if doc is None:
         raise InvalidRequestError(message='Cannot find drive')
 
+    settings = doc.get('settings') or {}
     for k, v in default_settings.items():
-        doc[k] = doc.get(k) or v
+        settings[k] = settings.get(k) or v
 
-    return doc
+    return settings
 
 
 @jsonrpc_bp.method('Onedrive.modifySettings', require_auth=True)
@@ -147,24 +135,8 @@ def modify_settings(drive_id: str, name: str,
     if name.endswith('_path'):
         # 根目录 '/', 其他目录以'/'开头，结尾不带'/'
         new_value = Utils.path_with_slash(new_value)
-    r = mongodb.drive_cache.update_one({'id': drive_id},
-                                       {'$set': {name: new_value}})
+    r = mongodb.drive.update_one({'id': drive_id},
+                                 {'$set': {'settings.' + name: new_value}})
     if r.matched_count == 0:
         return -1
     return 0
-
-
-@jsonrpc_bp.method('Onedrive.cleanItemCache', require_auth=True)
-def clean_item_cache(drive_ids: Union[list, str]) -> int:
-    ids = []
-
-    if isinstance(drive_ids, str):
-        ids.append(drive_ids)
-    elif isinstance(drive_ids, list):
-        ids.extend(drive_ids)
-
-    res = 0
-    for drive_id in ids:
-        res += mongodb.item_cache.delete_many(
-            {'drive_id': drive_id}).deleted_count
-    return res
