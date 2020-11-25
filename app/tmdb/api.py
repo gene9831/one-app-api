@@ -2,7 +2,7 @@
 import datetime
 import functools
 import logging
-from typing import Union
+from typing import Union, Literal
 
 from flask_jsonrpc.exceptions import InvalidRequestError
 
@@ -24,7 +24,10 @@ default_projection = {
     'release_date': 1,
     'runtime': 1,
     'status': 1,
-    'title': 1
+    'title': 1,
+    'popularity': 1,
+    'vote_average': 1,
+    'vote_count': 1
 }
 
 
@@ -191,23 +194,32 @@ get_movies_projection.pop('images.posters', None)
 
 
 @jsonrpc_bp.method('TMDb.getMovies')
-def get_movies(projection: dict = None, sort: dict = None, skip: int = 0,
-               limit: int = 20) -> list:
-    if projection is None:
-        projection = get_movies_projection
-    if sort is None:
-        sort = {'release_date': -1}
-    res = []
-    for doc in mongodb.tmdb_movies.aggregate([
+def get_movies(
+        skip: int = 0, limit: int = 25,
+        order: Literal['asc', 'desc'] = 'asc',
+        order_by: Literal[
+            'release_date', 'vote_average', 'popularity'] = 'release_date'
+) -> dict:
+    for result in mongodb.tmdb_movies.aggregate([
         {'$set': {'poster': {'$arrayElemAt': ['$images.posters', 0]}}},
-        {'$project': projection},
-        {'$sort': sort},
-        {'$skip': skip},
-        {'$limit': limit}
+        {'$project': get_movies_projection},
+        {'$facet': {
+            'count': [{'$count': 'count'}],
+            'list': [
+                {'$sort': {order_by: 1 if order == 'asc' else -1}},
+                {'$skip': skip},
+                {'$limit': limit}
+            ]
+        }},
+        {'$set': {'count': {'$let': {
+            'vars': {'firstElem': {'$arrayElemAt': ['$count', 0]}},
+            'in': '$$firstElem.count'
+        }}}},
+        {'$set': {'count': {'$ifNull': ['$count', {'$toInt': 0}]}}}
     ]):
-        res.append(doc)
+        return result
 
-    return res
+    return {'count': 0, 'list': []}
 
 
 item_projection = {
