@@ -240,11 +240,10 @@ class UploadThread(threading.Thread):
 
                 from app.onedrive.api.manage import get_settings
                 # 位于电影目录下且是mp4或者mkv
-                if info.upload_path.startswith(get_settings()['movies_path']) \
-                        and (
-                        info.filename.endswith('mp4') or
-                        info.filename.endswith('mkv')
-                ):
+                if info.upload_path.startswith(
+                        get_settings(info.drive_id)['movies_path']
+                ) and (info.filename.endswith('mp4') or
+                       info.filename.endswith('mkv')):
                     from app.tmdb.api import update_movies
                     update_movies()
 
