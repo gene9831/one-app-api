@@ -2,7 +2,7 @@
 import datetime
 import functools
 import logging
-from typing import Union, Literal
+from typing import Union, Literal, Optional
 
 from flask_jsonrpc.exceptions import InvalidRequestError
 
@@ -16,6 +16,7 @@ default_projection = {
     '_id': 0,
     'id': 1,
     'genres': 1,
+    'belongs_to_collection': 1,
     'images.backdrops': {'$slice': ["$images.backdrops", 3]},
     "images.posters": {'$slice': ["$images.posters", 3]},
     'original_language': 1,
@@ -224,12 +225,13 @@ def get_movie(movie_id: int) -> dict:
 
 get_movies_projection = {
     **default_projection,
-    'poster': '$poster.file_path',
+    'poster_path': '$poster.file_path',
 }
 get_movies_projection.pop('overview', None)
 get_movies_projection.pop('runtime', None)
 get_movies_projection.pop('images.backdrops', None)
 get_movies_projection.pop('images.posters', None)
+get_movies_projection.pop('belongs_to_collection', None)
 
 
 @jsonrpc_bp.method('TMDb.getMovies')
@@ -269,6 +271,35 @@ item_projection = {
     '_id': 0, 'id': 1, 'name': 1, 'file': 1, 'folder': 1,
     'lastModifiedDateTime': 1, 'size': 1
 }
+
+
+@jsonrpc_bp.method('TMDb.getCollection')
+def get_collection(collection_id: int) -> Optional[dict]:
+    for item in mongodb.tmdb_collections.aggregate([
+        {'$match': {'id': collection_id}},
+        {'$unwind': '$parts'},
+        {'$project': {'parts.overview': 0}},
+        {'$sort': {'parts.release_date': 1}},
+        {'$lookup': {
+            'from': 'tmdb_movies',
+            'localField': 'parts.id',
+            'foreignField': 'id',
+            'as': 'movies'
+        }},
+        {'$addFields': {'parts.exist': {'$cond': [
+            {'$eq': [{'$size': '$movies'}, 0]}, False, True]
+        }}},
+        {'$group': {
+            '_id': '$id',
+            'id': {'$first': '$id'},
+            'name': {'$first': '$name'},
+            'parts': {'$push': '$parts'}
+        }},
+        {'$unset': '_id'}
+    ]):
+        return item
+
+    return None
 
 
 @jsonrpc_bp.method('TMDb.getItemsByMovieId')
