@@ -39,6 +39,10 @@ class MyTMDb(TMDb):
             raise InvalidRequestError(message=resp_json.get('status_message'))
         return resp_json
 
+    def collection(self, collection_id, params=None):
+        params = {'language': 'zh-CN', }
+        return super(MyTMDb, self).collection(collection_id, params=params)
+
     def search_movie_id(self, filename):
         name, year = self.parse_movie_name(filename)
 

@@ -24,3 +24,10 @@ class TMDb:
         res = self.session.get('{}/search/movie'.format(self.api_base_url),
                                params=params)
         return res.json()
+
+    def collection(self, collection_id, params=None):
+        res = self.session.get(
+            '{}/collection/{}'.format(self.api_base_url, collection_id),
+            params=params
+        )
+        return res.json()

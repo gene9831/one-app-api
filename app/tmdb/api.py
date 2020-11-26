@@ -163,6 +163,17 @@ def update_movies(drive_ids: Union[str, list]) -> int:
                         }
                     },
                     upsert=True)
+
+                if resp_json.get('belongs_to_collection') is not None:
+                    # update collection
+                    collection_id = resp_json['belongs_to_collection']['id']
+                    resp_json2 = instance.collection(collection_id)
+                    mongodb.tmdb_collections.update_one(
+                        {'id': resp_json2['id']},
+                        {'$set': resp_json2},
+                        upsert=True
+                    )
+
                 res += 1
 
     logger.info('update {} movies'.format(res))
@@ -173,6 +184,34 @@ def update_movies(drive_ids: Union[str, list]) -> int:
 def remove_movies() -> int:
     r = mongodb.tmdb_movies.delete_many({})
     return r.deleted_count
+
+
+@jsonrpc_bp.method('TMDb.updateCollections', require_auth=True)
+def update_collections(entire: bool = False) -> int:
+    pipeline = [
+        {'$match': {'belongs_to_collection': {'$ne': None}}},
+        {'$group': {'_id': '$belongs_to_collection.id'}},
+        {'$lookup': {
+            'from': 'tmdb_collections',
+            'localField': '_id',
+            'foreignField': 'id',
+            'as': 'collections'
+        }}
+    ]
+
+    if not entire:
+        pipeline.extend([{'$match': {'collections': {'$size': 0}}}])
+
+    res = 0
+    instance = MyTMDb()
+    for collection in mongodb.tmdb_movies.aggregate(pipeline):
+        resp_json = instance.collection(collection['_id'])
+        mongodb.tmdb_collections.update_one({'id': resp_json['id']},
+                                            {'$set': resp_json},
+                                            upsert=True)
+        res += 1
+
+    return res
 
 
 @jsonrpc_bp.method('TMDb.getMovie')
@@ -195,12 +234,16 @@ get_movies_projection.pop('images.posters', None)
 
 @jsonrpc_bp.method('TMDb.getMovies')
 def get_movies(
+        match: dict = None,
         skip: int = 0, limit: int = 25,
         order: Literal['asc', 'desc'] = 'asc',
         order_by: Literal[
             'release_date', 'vote_average', 'popularity'] = 'release_date'
 ) -> dict:
+    if match is None:
+        match = {}
     for result in mongodb.tmdb_movies.aggregate([
+        {'$match': match},
         {'$set': {'poster': {'$arrayElemAt': ['$images.posters', 0]}}},
         {'$project': get_movies_projection},
         {'$facet': {
@@ -238,5 +281,8 @@ def get_items_by_movie_id(movie_id: int) -> list:
             for itm in mongodb.item.find({'parentReference.id': item['id']},
                                          item_projection):
                 res.append(itm)
+    if len(res) == 0:
+        # 没有资源
+        mongodb.tmdb_movies.delete_one({'id': movie_id})
 
     return res

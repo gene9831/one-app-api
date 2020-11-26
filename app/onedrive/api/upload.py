@@ -212,6 +212,7 @@ class UploadThread(threading.Thread):
                     info.finished = chunk_end + 1
                     info.speed = int(chunk_size / spend_time)
                     info.spend_time += spend_time
+                    info.commit()
 
                     resp_json = res.json()
                     if 'id' in resp_json.keys():
@@ -221,8 +222,6 @@ class UploadThread(threading.Thread):
                         info.commit()
                         logger.info('uploaded: {}'.format(info.filename))
                         return
-
-                    info.commit()
 
                     if self.stopped:
                         # stopping -> stopped
@@ -238,6 +237,17 @@ class UploadThread(threading.Thread):
         finally:
             if info.status == 'finished':
                 Drive.create_from_id(info.drive_id).update()
+
+                from app.onedrive.api.manage import get_settings
+                # 位于电影目录下且是mp4或者mkv
+                if info.upload_path.startswith(get_settings()['movies_path']) \
+                        and (
+                        info.filename.endswith('mp4') or
+                        info.filename.endswith('mkv')
+                ):
+                    from app.tmdb.api import update_movies
+                    update_movies()
+
             self.on_finished_fn(*self.on_finished_args)
 
 
