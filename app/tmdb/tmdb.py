@@ -31,3 +31,8 @@ class TMDb:
             params=params
         )
         return res.json()
+
+    def genre_movie(self, params=None):
+        res = self.session.get(
+            '{}/genre/movie/list'.format(self.api_base_url), params=params)
+        return res.json()

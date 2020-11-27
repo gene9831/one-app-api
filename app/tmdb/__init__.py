@@ -81,6 +81,16 @@ class MyTMDb(TMDb):
 
         return resp_json['results'][0]['id']
 
+    def get_movie_genres(self):
+        if mongodb.tmdb_genres.count_documents({}) > 0:
+            return
+        resp_json = self.genre_movie()
+        if 'genres' not in resp_json.keys():
+            logger.error('Get movie genres failed.')
+            return
+
+        mongodb.tmdb_genres.insert_many(resp_json['genres'])
+
     @staticmethod
     def parse_movie_name(s):
         # 倒置字符串是为了处理资源本身名字带年份的情况
@@ -102,6 +112,8 @@ class MyTMDb(TMDb):
 
 def init():
     from . import api
+
+    MyTMDb().get_movie_genres()
 
 
 init()

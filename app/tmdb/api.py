@@ -317,3 +317,13 @@ def get_items_by_movie_id(movie_id: int) -> list:
         mongodb.tmdb_movies.delete_one({'id': movie_id})
 
     return res
+
+
+@jsonrpc_bp.method('TMDb.getMovieGenres')
+def get_movie_genres() -> list:
+    res = []
+
+    for item in mongodb.tmdb_genres.find({}, {'_id': 0}):
+        res.append(item)
+
+    return res
