@@ -69,7 +69,18 @@ class MyTMDb(TMDb):
         if name is None:
             return None
 
-        resp_json = self.search(name, year)
+        params_list = [
+            {'query': name, 'primary_release_year': year},
+            {'query': name, 'year': year}
+        ]
+
+        resp_json = None
+        for params in params_list:
+            resp_json = self.search_movie(params)
+
+            if 'total_results' in resp_json.keys() and \
+                    resp_json['total_results'] > 0:
+                break
 
         if 'total_results' not in resp_json.keys():
             if 'errors' in resp_json.keys():
