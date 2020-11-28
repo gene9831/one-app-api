@@ -106,8 +106,11 @@ class MyTMDb(TMDb):
     def parse_movie_name(s):
         # 倒置字符串是为了处理资源本身名字带年份的情况
         # 比如2012世界某日这部电影"2012.2009.1080p.BluRay"
+        s = re.sub(r'[()]', ' ', s)
+        s = re.sub(r'\s+', ' ', s)
         s = s[::-1]
         # 用[.]或[ ]分隔的文件名都可以解析，其他则不行
+        # search发布年份
         result = re.search(r'[. ]\d{4}[. ]', s)
         if result is None:
             return None, None
