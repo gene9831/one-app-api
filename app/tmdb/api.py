@@ -251,7 +251,11 @@ def get_movies(
         {'$facet': {
             'count': [{'$count': 'count'}],
             'list': [
-                {'$sort': {order_by: 1 if order == 'asc' else -1}},
+                {'$sort': {
+                    order_by: 1 if order == 'asc' else -1,
+                    # 多个电影vote_average相同，导致sort排序不稳定，再加个title字段
+                    'title': 1
+                }},
                 {'$skip': skip},
                 {'$limit': limit}
             ]
