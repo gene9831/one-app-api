@@ -143,6 +143,14 @@ class Drive:
                             'id': item['id']
                         }).deleted_count
                     else:
+                        # 下载HEAD.md或者README.md
+                        if (item['name'] == 'README.md' or item[
+                            'name'] == 'HEAD.md') and \
+                                item['size'] <= 1024 * 1024:
+                            from app.onedrive.graph.drive_api import content
+                            resp = content(self.token, item['id'])
+                            item['content'] = resp.text
+
                         # 增、改
                         res = mongodb.item.update_one({'id': item['id']},
                                                       {'$set': item},

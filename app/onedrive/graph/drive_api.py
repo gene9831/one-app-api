@@ -49,6 +49,11 @@ def create_link(token: dict, item_id: str,
     return request(token, Method.POST, url, json=data).json()
 
 
+def content(token: dict, item_id: str):
+    url = '{}/{}/content'.format(items_url, item_id)
+    return request(token, Method.GET, url)
+
+
 def content_url(token: dict, item_id: str) -> str:
     url = '{}/{}/content'.format(items_url, item_id)
 

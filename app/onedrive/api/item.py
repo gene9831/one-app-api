@@ -60,7 +60,8 @@ def get_items_by_path(
         {'$match': {
             **query,
             'parentReference.driveId': drive_id,
-            'parentReference.path': onedrive_root_path + path
+            'parentReference.path': onedrive_root_path + path,
+            'name': {'$nin': ['README.md', 'HEAD.md']}
         }},
         {'$project': get_items_projection},
         {'$facet': {
@@ -135,6 +136,33 @@ def get_movies(
     ]):
         return result
     return {'count': 0, 'list': []}
+
+
+@jsonrpc_bp.method('Onedrive.getMdByPath')
+def get_md_by_path(drive_id: str, path: str) -> dict:
+    settings = get_settings(drive_id)
+    path = Utils.path_join(settings['root_path'], path, root=False)
+
+    res = {
+        'head': '',
+        'readme': ''
+    }
+
+    for item in mongodb.item.aggregate([
+        {'$match': {
+            'parentReference.driveId': drive_id,
+            'parentReference.path': onedrive_root_path + path,
+            'name': {'$in': ['README.md', 'HEAD.md']}
+        }},
+        {'$project': {'_id': 0, 'name': 1, 'content': 1}},
+    ]):
+        if item['name'] == 'README.md':
+            res['readme'] = item.get('content') or ''
+
+        if item['name'] == 'HEAD.md':
+            res['head'] = item.get('content') or ''
+
+    return res
 
 
 @jsonrpc_bp.method('Onedrive.listDrivePath', require_auth=True)
