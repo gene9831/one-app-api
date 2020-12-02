@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 import datetime
-import functools
 import logging
 from typing import Union, Literal, Optional
 
@@ -8,6 +7,7 @@ from flask_jsonrpc.exceptions import InvalidRequestError
 
 from app import jsonrpc_bp
 from . import mongodb, MyTMDb
+from .lang import get_langs
 from ..common import Utils
 
 logger = logging.getLogger(__name__)
@@ -57,36 +57,9 @@ def get_movie_data_by_item_id(
     return None
 
 
-iso_639_1_dict = {
-    'en': 100,
-    'zh': 99,
-    'xx': -1,
-}
-
-
-def get_iso_639_1_value(k):
-    if k in iso_639_1_dict.keys():
-        return iso_639_1_dict[k]
-    return 0
-
-
-def cmp_number_to_int(a, b):
-    if a < b:
-        return -1
-    if a > b:
-        return 1
-    return 0
-
-
-def cmp(a, b):
-    res = cmp_number_to_int(a['vote_average'], b['vote_average'])
-    if res == 0:
-        return cmp_number_to_int(
-            get_iso_639_1_value(a['iso_639_1']),
-            get_iso_639_1_value(b['iso_639_1'])
-        )
-        pass
-    return res
+def poster_country_not_null(poster):
+    iso_639_1 = poster.get('iso_639_1')
+    return iso_639_1 is not None and iso_639_1 != 'xx'
 
 
 @jsonrpc_bp.method('TMDb.updateMovies', require_auth=True)
@@ -149,12 +122,27 @@ def update_movies(drive_ids: Union[str, list]) -> int:
             }) == 0:
                 # 查找 tmdb_movie 文档
                 resp_json = instance.movie(movie_id)
-                posters = resp_json['images']['posters']
-                resp_json['images']['posters'] = sorted(
-                    posters,
-                    key=functools.cmp_to_key(cmp),
-                    reverse=True
-                )
+                if 'id' not in resp_json.keys():
+                    raise InvalidRequestError(
+                        message=resp_json.get('status_message'))
+
+                countries = []
+                for c in resp_json['production_countries']:
+                    countries.append(c['iso_3166_1'])
+
+                langs = get_langs(countries)
+                langs.append('null')
+
+                images = instance.movie_images(movie_id, ','.join(langs))
+                if 'id' not in images.keys():
+                    raise InvalidRequestError(
+                        message=images.get('status_message'))
+                images.pop('id', None)
+
+                images['posters'] = list(
+                    filter(poster_country_not_null, images['posters']))
+
+                resp_json['images'] = images
                 mongodb.tmdb_movies.update_one(
                     {'id': resp_json['id']},
                     {
@@ -168,10 +156,10 @@ def update_movies(drive_ids: Union[str, list]) -> int:
                 if resp_json.get('belongs_to_collection') is not None:
                     # update collection
                     collection_id = resp_json['belongs_to_collection']['id']
-                    resp_json2 = instance.collection(collection_id)
+                    collection_resp = instance.collection(collection_id)
                     mongodb.tmdb_collections.update_one(
-                        {'id': resp_json2['id']},
-                        {'$set': resp_json2},
+                        {'id': collection_resp['id']},
+                        {'$set': collection_resp},
                         upsert=True
                     )
 

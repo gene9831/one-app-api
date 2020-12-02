@@ -18,6 +18,12 @@ class TMDb:
             '{}/movie/{}'.format(self.api_base_url, movie_id), params=params)
         return res.json()
 
+    def movie_images(self, movie_id, include_image_language=''):
+        params = {'include_image_language': include_image_language}
+        return self.session.get(
+            '{}/movie/{}/images'.format(self.api_base_url, movie_id),
+            params=params).json()
+
     def search_movie(self, params=None):
         res = self.session.get('{}/search/movie'.format(self.api_base_url),
                                params=params)
