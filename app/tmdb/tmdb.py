@@ -24,6 +24,12 @@ class TMDb:
             '{}/movie/{}/images'.format(self.api_base_url, movie_id),
             params=params).json()
 
+    def movie_credits(self, movie_id, language='en-US'):
+        params = {'language': language}
+        return self.session.get(
+            '{}/movie/{}/credits'.format(self.api_base_url, movie_id),
+            params=params).json()
+
     def search_movie(self, params=None):
         res = self.session.get('{}/search/movie'.format(self.api_base_url),
                                params=params)

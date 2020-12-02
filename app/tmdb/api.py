@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 import datetime
 import logging
+import threading
+import time
 from typing import Union, Literal, Optional
 
 from flask_jsonrpc.exceptions import InvalidRequestError
@@ -57,11 +59,6 @@ def get_movie_data_by_item_id(
     return None
 
 
-def poster_country_not_null(poster):
-    iso_639_1 = poster.get('iso_639_1')
-    return iso_639_1 is not None and iso_639_1 != 'xx'
-
-
 @jsonrpc_bp.method('TMDb.updateMovies', require_auth=True)
 def update_movies(drive_ids: Union[str, list]) -> int:
     from app.onedrive.api.manage import get_settings
@@ -116,57 +113,131 @@ def update_movies(drive_ids: Union[str, list]) -> int:
                 '$or': [
                     # release_data 小于当前日期减3个月（也就是说不是最近上映的）
                     {'release_date': {'$lt': three_month_ago}},
-                    # 最近上映的，7天更新一次数据
+                    # lastUpdateTime 在7天内；最近上映的，7天更新一次数据
                     {'lastUpdateTime': {'$gt': seven_days_ago}}
                 ]
-            }) == 0:
-                # 查找 tmdb_movie 文档
-                resp_json = instance.movie(movie_id)
-                if 'id' not in resp_json.keys():
-                    raise InvalidRequestError(
-                        message=resp_json.get('status_message'))
+            }) > 0:
+                continue
 
-                countries = []
-                for c in resp_json['production_countries']:
-                    countries.append(c['iso_3166_1'])
+            # 查找 tmdb_movie 文档
+            resp_json = instance.movie(movie_id)
+            if 'id' not in resp_json.keys():
+                raise InvalidRequestError(
+                    message=resp_json.get('status_message'))
 
-                langs = get_langs(countries)
-                langs.append('null')
+            # images
+            countries = []
+            for c in resp_json['production_countries']:
+                countries.append(c['iso_3166_1'])
 
-                images = instance.movie_images(movie_id, ','.join(langs))
-                if 'id' not in images.keys():
-                    raise InvalidRequestError(
-                        message=images.get('status_message'))
-                images.pop('id', None)
+            langs = get_langs(countries)
+            langs.append('null')
 
-                images['posters'] = list(
-                    filter(poster_country_not_null, images['posters']))
+            images = instance.movie_images(movie_id, ','.join(langs))
+            if 'id' not in images.keys():
+                raise InvalidRequestError(
+                    message=images.get('status_message'))
+            images.pop('id', None)
 
-                resp_json['images'] = images
-                mongodb.tmdb_movies.update_one(
-                    {'id': resp_json['id']},
-                    {
-                        '$set': {
-                            **resp_json,
-                            'lastUpdateTime': Utils.utc_datetime()
-                        }
-                    },
-                    upsert=True)
+            def poster_country_not_null(poster):
+                iso_639_1 = poster.get('iso_639_1')
+                return iso_639_1 is not None and iso_639_1 != 'xx'
 
-                if resp_json.get('belongs_to_collection') is not None:
-                    # update collection
-                    collection_id = resp_json['belongs_to_collection']['id']
-                    collection_resp = instance.collection(collection_id)
-                    mongodb.tmdb_collections.update_one(
-                        {'id': collection_resp['id']},
-                        {'$set': collection_resp},
-                        upsert=True
-                    )
+            images['posters'] = list(
+                filter(poster_country_not_null, images['posters']))
 
-                res += 1
+            resp_json['images'] = images
+
+            # directors
+            credit = instance.movie_credits(movie_id)
+            if 'id' not in credit.keys():
+                raise InvalidRequestError(
+                    message=credit.get('status_message'))
+
+            def job_is_director(person):
+                return person['job'] == 'Director'
+
+            directors = list(filter(job_is_director, credit['crew']))
+
+            for director in directors:
+                mongodb.tmdb_directors.update_one(
+                    {'id': director['id']},
+                    {'$set': {
+                        'id': director['id'],
+                        'name': director['name'],
+                        'profile_path': director['profile_path']
+                    }},
+                    upsert=True
+                )
+
+            resp_json['directors'] = list(
+                map(lambda x: {'id': x['id'], 'name': x['name']}, directors))
+
+            mongodb.tmdb_movies.update_one(
+                {'id': resp_json['id']},
+                {
+                    '$set': {
+                        **resp_json,
+                        'lastUpdateTime': Utils.utc_datetime()
+                    }
+                },
+                upsert=True)
+
+            if resp_json.get('belongs_to_collection') is not None:
+                # update collection
+                collection_id = resp_json['belongs_to_collection']['id']
+                collection_resp = instance.collection(collection_id)
+                mongodb.tmdb_collections.update_one(
+                    {'id': collection_resp['id']},
+                    {'$set': collection_resp},
+                    upsert=True
+                )
+
+            res += 1
+
+    if res > 0:
+        threading.Thread(
+            target=trans_director_name,
+            name='translate_director_name'
+        ).start()
 
     logger.info('update {} movies'.format(res))
     return res
+
+
+@jsonrpc_bp.method('TMDb.translateDirectorName', require_auth=True)
+def trans_director_name() -> int:
+    from app.baidu_trans import baidu_trans
+    for item in mongodb.tmdb_directors.find({'name_zh': None}):
+        name_zh = baidu_trans(item['name'])
+        print(item['name'], name_zh)
+        mongodb.tmdb_directors.update_one(
+            {'id': item['id']},
+            {'$set': {'name_zh': name_zh}}
+        )
+        time.sleep(0.1)
+
+    # 翻译完后遍历所有movies，把翻译填充上去
+    cnt = 0
+    for item in mongodb.tmdb_movies.find({'directors.name_zh': None}):
+        directors = item['directors']
+        new_directors = []
+        for director in directors:
+            if director.get('name_zh') is None:
+                director['name_zh'] = mongodb.tmdb_directors.find_one(
+                    {'id': director['id']}
+                ).get('name_zh')
+            new_directors.append(director)
+
+        mongodb.tmdb_movies.update_one(
+            {'id': item['id']},
+            {'$set': {'directors': directors}}
+        )
+        cnt += 1
+
+    logger.info('translate director name done')
+
+    return cnt
 
 
 @jsonrpc_bp.method('TMDb.removeMovies', require_auth=True)
