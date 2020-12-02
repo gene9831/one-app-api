@@ -32,7 +32,7 @@ class MyTMDb(TMDb):
     def movie(self, movie_id, params=None):
         params = {
             'append_to_response': 'images',
-            'include_image_language': 'en,null',  # 海报和背景图的地区没有国内的，因为国内的广告实在太多了
+            'include_image_language': 'en',  # 海报和背景图的地区没有国内的，因为国内的广告实在太多了
         }
         resp_json = super().movie(movie_id, params=params)
         if 'id' not in resp_json.keys():
