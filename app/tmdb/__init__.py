@@ -29,30 +29,6 @@ class MyTMDb(TMDb):
             self.session.proxies.update(
                 {'http': 'http://' + proxy, 'https': 'http://' + proxy})
 
-    def collection(self, collection_id, params=None):
-        params = {'language': 'en-US', }
-        resp_json = super(MyTMDb, self).collection(collection_id, params=params)
-        resp_json_zh = super(MyTMDb, self).collection(collection_id)
-        # 提取中文部分文字信息，其他的用英文信息
-        resp_json['name'] = resp_json_zh['name']
-        resp_json['overview'] = resp_json_zh.get('overview') or ''
-        # 这个字典是movie_id对应数组下标，保险起见
-        # 因为有可能两个parts中的movie_id对应的下标不一样
-        movie_id_to_index = {}
-        for i in range(len(resp_json['parts'])):
-            movie_id_to_index[resp_json['parts'][i]['id']] = i
-        for item in resp_json_zh['parts']:
-            if item['id'] not in movie_id_to_index.keys():
-                continue
-            resp_json['parts'][
-                movie_id_to_index[item['id']]
-            ]['title'] = item['title']
-            resp_json['parts'][
-                movie_id_to_index[item['id']]
-            ]['overview'] = item['overview']
-
-        return resp_json
-
     def search_movie_id(self, filename):
         name, year = self.parse_movie_name(filename)
 
@@ -83,14 +59,14 @@ class MyTMDb(TMDb):
         return resp_json['results'][0]['id']
 
     def get_movie_genres(self):
-        if mongodb.tmdb_genres.count_documents({}) > 0:
+        if mongodb.tmdb_genre.count_documents({}) > 0:
             return
         resp_json = self.genre_movie()
         if 'genres' not in resp_json.keys():
             logger.error('Get movie genres failed.')
             return
 
-        mongodb.tmdb_genres.insert_many(resp_json['genres'])
+        mongodb.tmdb_genre.insert_many(resp_json['genres'])
 
     @staticmethod
     def parse_movie_name(s):

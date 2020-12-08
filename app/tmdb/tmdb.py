@@ -36,11 +36,16 @@ class TMDb:
         return res.json()
 
     def collection(self, collection_id, params=None):
-        res = self.session.get(
+        return self.session.get(
             '{}/collection/{}'.format(self.api_base_url, collection_id),
             params=params
-        )
-        return res.json()
+        ).json()
+
+    def person(self, person_id, params=None):
+        return self.session.get(
+            '{}/person/{}'.format(self.api_base_url, person_id),
+            params=params
+        ).json()
 
     def genre_movie(self, params=None):
         res = self.session.get(

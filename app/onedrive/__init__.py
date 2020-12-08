@@ -191,12 +191,13 @@ def auto_update():
     每天24点自动更新
     :return:
     """
-    from app.tmdb.api import update_movies
     drive_ids = []
     for drive_id in Drive.all_drive_ids():
         Drive.create_from_id(drive_id).update()
         drive_ids.append(drive_id)
-    update_movies(drive_ids)
+
+    from app.tmdb.api.updater import update_movie_data
+    update_movie_data(drive_ids)
 
     now = datetime.datetime.now()
     mid_night = datetime.datetime(now.year, now.month, now.day, 23, 59, 59)

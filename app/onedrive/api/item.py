@@ -102,23 +102,23 @@ def get_movies(
         }},
         {'$project': get_items_projection},
         {'$lookup': {
-            'from': 'tmdb_movies',
+            'from': 'tmdb_movie',
             'localField': 'movie_id',
             'foreignField': 'id',
-            'as': 'tmdb_movies1'
+            'as': 'movies'
         }},
-        {'$unwind': '$tmdb_movies1'},
-        {'$set': {'tmdb_movies': {
-            'id': '$tmdb_movies1.id',
-            'title': '$tmdb_movies1.title',
+        {'$unwind': '$movies'},
+        {'$set': {'tmdb_movie': {
+            'id': '$movies.id',
+            'title': '$movies.title',
             'poster': {'$let': {
                 'vars': {'poster': {
-                    '$arrayElemAt': ['$tmdb_movies1.images.posters', 0]}},
+                    '$arrayElemAt': ['$movies.images.posters', 0]}},
                 'in': '$$poster.file_path'
             }}
         }}},
-        {'$unset': 'tmdb_movies1'},
-        {'$set': {'name': '$tmdb_movies.title'}},
+        {'$unset': 'movies'},
+        {'$set': {'name': '$tmdb_movie.title'}},
         {'$match': query},
         {'$facet': {
             'count': [{'$count': 'count'}],
