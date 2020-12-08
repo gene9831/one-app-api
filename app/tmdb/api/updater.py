@@ -360,7 +360,7 @@ def update_persons(
     return res
 
 
-@jsonrpc_bp.method('updateMovieData', require_auth=True)
+@jsonrpc_bp.method('TMDb.updateMovieData', require_auth=True)
 def update_movie_data(drive_ids: Union[str, List[str]]):
     # update_persons必须在update_directors之后
     update_movies(drive_ids)
