@@ -244,8 +244,8 @@ class UploadThread(threading.Thread):
                         get_settings(info.drive_id)['movies_path']
                 ) and (info.filename.endswith('mp4') or
                        info.filename.endswith('mkv')):
-                    from app.tmdb.api import update_movies
-                    update_movies(info.drive_id)
+                    from app.tmdb.api.updater import update_movie_data
+                    update_movie_data(info.drive_id)
 
             self.on_finished_fn(*self.on_finished_args)
 
