@@ -40,13 +40,18 @@ def get_items_by_path(
             **query,
             'parentReference.driveId': drive_id,
             'parentReference.path': onedrive_root_path + path,
-            'name': {'$nin': ['README.md', 'HEAD.md']}
         }},
         {'$project': get_items_projection},
         {'$facet': {
             'count': [{'$count': 'count'}],
             'list': [
-                {'$sort': {order_by: 1 if order == 'asc' else -1}},
+                {'$addFields': {'ftype': {'$cond': [
+                    {'$ifNull': ['$folder', False]}, 0, 1
+                ]}}},
+                {'$sort': {
+                    'ftype': 1 if order == 'asc' else -1,
+                    order_by: 1 if order == 'asc' else -1
+                }},
                 {'$skip': skip},
                 {'$limit': limit}
             ]
