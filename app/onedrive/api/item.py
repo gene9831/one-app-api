@@ -23,38 +23,17 @@ get_items_projection = {
 def get_items_by_path(
         drive_id: str, path: str, skip: int = 0, limit: int = 20,
         query: dict = None, order: Literal['asc', 'desc'] = 'asc',
-        order_by: Literal['name', 'lastModifiedDateTime'] = 'name'
+        order_by: Literal['name', 'lastModifiedDateTime'] = 'name',
+        append_md_files=False
 ) -> dict:
     """
     文件夹移动或者重命名后，使用 deltaLink 更新，不会更新文件夹的子项的数据。
     也就是说使用本方查找重命名过的文件夹的子项的结果是空的，全量更新后没有问题。
-    :param drive_id:
-    :param path:
-    :param skip:
-    :param limit:
-    :param query:
-    :param order:
-    :param order_by:
-    :return:
     """
     query = query or {}
 
     settings = get_settings(drive_id)
     path = Utils.path_join(settings['root_path'], path, root=False)
-
-    if path == settings['movies_path']:
-        return get_movies(
-            drive_id,
-            onedrive_root_path + path,
-            query=query,
-            skip=skip,
-            limit=limit,
-            order=order,
-            order_by=order_by
-        )
-
-    if path == settings['tv_series_path']:
-        pass
 
     for result in mongodb.item.aggregate([
         {'$match': {
@@ -78,63 +57,25 @@ def get_items_by_path(
         }}}},
         {'$set': {'count': {'$ifNull': ['$count', {'$toInt': 0}]}}}
     ]):
+        if append_md_files:
+            md_files = {'head': None, 'readme': None}
+            for item in mongodb.item.aggregate([
+                {'$match': {
+                    'name': {'$in': ['README.md', 'HEAD.md']},
+                    'parentReference.driveId': drive_id,
+                    'parentReference.path': onedrive_root_path + path,
+                }},
+                {'$project': {'_id': 0, 'name': 1, 'content': 1}},
+            ]):
+                if item['name'] == 'README.md':
+                    md_files['readme'] = item.get('content')
+                if item['name'] == 'HEAD.md':
+                    md_files['head'] = item.get('content')
+
+            result = {**result, **md_files}
+
         return result
 
-    return {'count': 0, 'list': []}
-
-
-def get_movies(
-        drive_id: str,
-        movies_path: str,
-        query: dict = None,
-        skip: int = 0,
-        limit: int = 20,
-        order: Literal['asc', 'desc'] = 'asc',
-        order_by: Literal['name', 'lastModifiedDateTime'] = 'name'
-) -> dict:
-    if query is None:
-        query = {}
-
-    for result in mongodb.item.aggregate([
-        {'$match': {
-            'parentReference.driveId': drive_id,
-            'parentReference.path': movies_path
-        }},
-        {'$project': get_items_projection},
-        {'$lookup': {
-            'from': 'tmdb_movie',
-            'localField': 'movie_id',
-            'foreignField': 'id',
-            'as': 'movies'
-        }},
-        {'$unwind': '$movies'},
-        {'$set': {'tmdb_movie': {
-            'id': '$movies.id',
-            'title': '$movies.title',
-            'poster': {'$let': {
-                'vars': {'poster': {
-                    '$arrayElemAt': ['$movies.images.posters', 0]}},
-                'in': '$$poster.file_path'
-            }}
-        }}},
-        {'$unset': 'movies'},
-        {'$set': {'name': '$tmdb_movie.title'}},
-        {'$match': query},
-        {'$facet': {
-            'count': [{'$count': 'count'}],
-            'list': [
-                {'$sort': {order_by: 1 if order == 'asc' else -1}},
-                {'$skip': skip},
-                {'$limit': limit}
-            ]
-        }},
-        {'$set': {'count': {'$let': {
-            'vars': {'firstElem': {'$arrayElemAt': ['$count', 0]}},
-            'in': '$$firstElem.count'
-        }}}},
-        {'$set': {'count': {'$ifNull': ['$count', {'$toInt': 0}]}}}
-    ]):
-        return result
     return {'count': 0, 'list': []}
 
 
